@@ -19,6 +19,14 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Word count and auto-detected language shown in header
 - Back button to return to editor
 
+### Responsive Design
+- Mobile-first responsive layout: adapts from 320px phones to desktop
+- Breakpoints at 900px (tablet) and 600px (phone) for optimal layout at every size
+- TTS bar compacts on smaller screens: language/voice selects shrink, buttons resize
+- Reading mode: article padding, font sizes, and heading scale adjust for small screens
+- Editor mode: stacked layout on mobile, full-width "Read" button
+- Native `<select>` dropdowns styled with dark backgrounds + SVG arrows to match theme
+
 ### Click-to-Read
 - Every paragraph, heading, and list item is individually clickable
 - Click any element to start TTS reading from that exact point
@@ -31,6 +39,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Voice selector dropdown showing voice name + gender (Male / Female)
 - Voice preference saved to localStorage
 - Auto-detect language from text content, pre-select matching voice
+- Select dropdowns styled with dark background + custom SVG arrow (no white flash on dark theme)
 - 6 speed presets: 0.7x — 1.5x
 - Progress bar with percentage and chunk counter
 - Play / Pause / Resume / Stop controls
