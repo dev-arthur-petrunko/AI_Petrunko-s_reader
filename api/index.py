@@ -1,133 +1,72 @@
 import os
 import asyncio
+import hashlib
 import edge_tts
 import tempfile
 from flask import Flask, request, Response
 
 app = Flask(__name__)
 
-ALL_VOICES = {
-    "uk-UA": [
-        {"name": "uk-UA-OstapNeural", "gender": "Male"},
-        {"name": "uk-UA-PolinaNeural", "gender": "Female"},
-    ],
-    "ru-RU": [
-        {"name": "ru-RU-DmitryNeural", "gender": "Male"},
-        {"name": "ru-RU-SvetlanaNeural", "gender": "Female"},
-    ],
-    "pl-PL": [
-        {"name": "pl-PL-MarekNeural", "gender": "Male"},
-        {"name": "pl-PL-ZofiaNeural", "gender": "Female"},
-    ],
+MAX_TEXT_LENGTH = 5000
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "tts_cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+EDGE_VOICES = {
+    "uk-UA": ["uk-UA-OstapNeural", "uk-UA-PolinaNeural"],
+    "ru-RU": ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"],
+    "pl-PL": ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"],
     "en-US": [
-        {"name": "en-US-AvaNeural", "gender": "Female"},
-        {"name": "en-US-AndrewNeural", "gender": "Male"},
-        {"name": "en-US-EmmaNeural", "gender": "Female"},
-        {"name": "en-US-BrianNeural", "gender": "Male"},
-        {"name": "en-US-AnaNeural", "gender": "Female"},
-        {"name": "en-US-AriaNeural", "gender": "Female"},
-        {"name": "en-US-ChristopherNeural", "gender": "Male"},
-        {"name": "en-US-EricNeural", "gender": "Male"},
-        {"name": "en-US-GuyNeural", "gender": "Male"},
-        {"name": "en-US-JennyNeural", "gender": "Female"},
-        {"name": "en-US-MichelleNeural", "gender": "Female"},
-        {"name": "en-US-RogerNeural", "gender": "Male"},
-        {"name": "en-US-SteffanNeural", "gender": "Male"},
+        "en-US-AvaNeural", "en-US-AndrewNeural", "en-US-EmmaNeural",
+        "en-US-BrianNeural", "en-US-AnaNeural", "en-US-AriaNeural",
+        "en-US-ChristopherNeural", "en-US-EricNeural", "en-US-GuyNeural",
+        "en-US-JennyNeural", "en-US-MichelleNeural", "en-US-RogerNeural",
+        "en-US-SteffanNeural",
     ],
-    "en-GB": [
-        {"name": "en-GB-LibbyNeural", "gender": "Female"},
-        {"name": "en-GB-MaisieNeural", "gender": "Female"},
-        {"name": "en-GB-RyanNeural", "gender": "Male"},
-        {"name": "en-GB-SoniaNeural", "gender": "Female"},
-        {"name": "en-GB-ThomasNeural", "gender": "Male"},
-    ],
-    "de-DE": [
-        {"name": "de-DE-AmalaNeural", "gender": "Female"},
-        {"name": "de-DE-ConradNeural", "gender": "Male"},
-        {"name": "de-DE-KatjaNeural", "gender": "Female"},
-        {"name": "de-DE-KillianNeural", "gender": "Male"},
-    ],
-    "fr-FR": [
-        {"name": "fr-FR-DeniseNeural", "gender": "Female"},
-        {"name": "fr-FR-EloiseNeural", "gender": "Female"},
-        {"name": "fr-FR-HenriNeural", "gender": "Male"},
-    ],
-    "es-ES": [
-        {"name": "es-ES-XimenaNeural", "gender": "Female"},
-        {"name": "es-ES-AlvaroNeural", "gender": "Male"},
-        {"name": "es-ES-ElviraNeural", "gender": "Female"},
-    ],
-    "pt-BR": [
-        {"name": "pt-BR-AntonioNeural", "gender": "Male"},
-        {"name": "pt-BR-FranciscaNeural", "gender": "Female"},
-    ],
-    "it-IT": [
-        {"name": "it-IT-DiegoNeural", "gender": "Male"},
-        {"name": "it-IT-ElsaNeural", "gender": "Female"},
-        {"name": "it-IT-IsabellaNeural", "gender": "Female"},
-    ],
-    "ja-JP": [
-        {"name": "ja-JP-KeitaNeural", "gender": "Male"},
-        {"name": "ja-JP-NanamiNeural", "gender": "Female"},
-    ],
-    "zh-CN": [
-        {"name": "zh-CN-XiaoxiaoNeural", "gender": "Female"},
-        {"name": "zh-CN-XiaoyiNeural", "gender": "Female"},
-        {"name": "zh-CN-YunjianNeural", "gender": "Male"},
-        {"name": "zh-CN-YunxiNeural", "gender": "Male"},
-        {"name": "zh-CN-YunyangNeural", "gender": "Male"},
-    ],
-    "ko-KR": [
-        {"name": "ko-KR-InJoonNeural", "gender": "Male"},
-        {"name": "ko-KR-SunHiNeural", "gender": "Female"},
-    ],
-    "cs-CZ": [
-        {"name": "cs-CZ-AntoninNeural", "gender": "Male"},
-        {"name": "cs-CZ-VlastaNeural", "gender": "Female"},
-    ],
-    "tr-TR": [
-        {"name": "tr-TR-EmelNeural", "gender": "Female"},
-        {"name": "tr-TR-AhmetNeural", "gender": "Male"},
-    ],
-    "ar-SA": [
-        {"name": "ar-SA-HamedNeural", "gender": "Male"},
-        {"name": "ar-SA-ZariyahNeural", "gender": "Female"},
-    ],
-    "hi-IN": [
-        {"name": "hi-IN-MadhurNeural", "gender": "Male"},
-        {"name": "hi-IN-SwaraNeural", "gender": "Female"},
-    ],
-    "hu-HU": [
-        {"name": "hu-HU-NoemiNeural", "gender": "Female"},
-        {"name": "hu-HU-TamasNeural", "gender": "Male"},
-    ],
-    "ro-RO": [
-        {"name": "ro-RO-AlinaNeural", "gender": "Female"},
-        {"name": "ro-RO-EmilNeural", "gender": "Male"},
-    ],
-    "sv-SE": [
-        {"name": "sv-SE-MattiasNeural", "gender": "Male"},
-        {"name": "sv-SE-SofieNeural", "gender": "Female"},
-    ],
-    "nb-NO": [
-        {"name": "nb-NO-FinnNeural", "gender": "Male"},
-        {"name": "nb-NO-PernilleNeural", "gender": "Female"},
-    ],
-    "fi-FI": [
-        {"name": "fi-FI-HarriNeural", "gender": "Male"},
-        {"name": "fi-FI-NooraNeural", "gender": "Female"},
-    ],
-    "nl-NL": [
-        {"name": "nl-NL-ColetteNeural", "gender": "Female"},
-        {"name": "nl-NL-FennaNeural", "gender": "Female"},
-        {"name": "nl-NL-MaartenNeural", "gender": "Male"},
-    ],
+    "en-GB": ["en-GB-LibbyNeural", "en-GB-MaisieNeural", "en-GB-RyanNeural", "en-GB-SoniaNeural", "en-GB-ThomasNeural"],
+    "de-DE": ["de-DE-AmalaNeural", "de-DE-ConradNeural", "de-DE-KatjaNeural", "de-DE-KillianNeural"],
+    "fr-FR": ["fr-FR-DeniseNeural", "fr-FR-EloiseNeural", "fr-FR-HenriNeural"],
+    "es-ES": ["es-ES-XimenaNeural", "es-ES-AlvaroNeural", "es-ES-ElviraNeural"],
+    "pt-BR": ["pt-BR-AntonioNeural", "pt-BR-FranciscaNeural"],
+    "it-IT": ["it-IT-DiegoNeural", "it-IT-ElsaNeural", "it-IT-IsabellaNeural"],
+    "ja-JP": ["ja-JP-KeitaNeural", "ja-JP-NanamiNeural"],
+    "zh-CN": ["zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-YunjianNeural", "zh-CN-YunxiNeural", "zh-CN-YunyangNeural"],
+    "ko-KR": ["ko-KR-InJoonNeural", "ko-KR-SunHiNeural"],
+    "cs-CZ": ["cs-CZ-AntoninNeural", "cs-CZ-VlastaNeural"],
+    "tr-TR": ["tr-TR-EmelNeural", "tr-TR-AhmetNeural"],
+    "ar-SA": ["ar-SA-HamedNeural", "ar-SA-ZariyahNeural"],
+    "hi-IN": ["hi-IN-MadhurNeural", "hi-IN-SwaraNeural"],
+    "hu-HU": ["hu-HU-NoemiNeural", "hu-HU-TamasNeural"],
+    "ro-RO": ["ro-RO-AlinaNeural", "ro-RO-EmilNeural"],
+    "sv-SE": ["sv-SE-MattiasNeural", "sv-SE-SofieNeural"],
+    "nb-NO": ["nb-NO-FinnNeural", "nb-NO-PernilleNeural"],
+    "fi-FI": ["fi-FI-HarriNeural", "fi-FI-NooraNeural"],
+    "nl-NL": ["nl-NL-ColetteNeural", "nl-NL-FennaNeural", "nl-NL-MaartenNeural"],
 }
+
+ALL_VOICE_NAMES = set()
+for voices in EDGE_VOICES.values():
+    ALL_VOICE_NAMES.update(voices)
+
+
+def is_valid_voice(voice):
+    return voice in ALL_VOICE_NAMES
+
+
+def cache_key(text, voice, rate):
+    return hashlib.sha256(f"{text}|{voice}|{rate}".encode()).hexdigest()
+
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 
 @app.route("/api/tts/voices", methods=["GET"])
 def tts_voices():
-    return {"voices": ALL_VOICES}
+    return {"voices": EDGE_VOICES}
 
 
 @app.route("/api/tts", methods=["POST"])
@@ -141,18 +80,30 @@ def tts_generate():
     if not text:
         return Response("No text", status=400)
 
-    try:
-        loop = asyncio.new_event_loop()
-        try:
-            audio_path = loop.run_until_complete(
-                _generate_audio(text, voice, rate, pitch)
-            )
-        finally:
-            loop.close()
+    if not is_valid_voice(voice):
+        return Response("Invalid voice", status=400)
 
-        with open(audio_path, "rb") as f:
-            audio_bytes = f.read()
-        os.unlink(audio_path)
+    if len(text) > MAX_TEXT_LENGTH:
+        return Response(f"Text too long (max {MAX_TEXT_LENGTH} chars)", status=413)
+
+    key = cache_key(text, voice, rate)
+    cached_path = os.path.join(CACHE_DIR, f"{key}.mp3")
+    if os.path.exists(cached_path):
+        with open(cached_path, "rb") as f:
+            return Response(f.read(), mimetype="audio/mpeg")
+
+    try:
+        audio_path = asyncio.run(_generate_audio(text, voice, rate, pitch))
+
+        try:
+            with open(audio_path, "rb") as f:
+                audio_bytes = f.read()
+        finally:
+            if os.path.exists(audio_path):
+                os.unlink(audio_path)
+
+        with open(cached_path, "wb") as f:
+            f.write(audio_bytes)
 
         return Response(audio_bytes, mimetype="audio/mpeg")
 
@@ -160,11 +111,9 @@ def tts_generate():
         return Response(f"TTS error: {e}", status=500)
 
 
-async def _generate_audio(text: str, voice: str, rate: str, pitch: str) -> str:
+async def _generate_audio(text, voice, rate, pitch):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tmp.close()
-    communicate = edge_tts.Communicate(
-        text=text, voice=voice, rate=rate, pitch=pitch
-    )
+    communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
     await communicate.save(tmp.name)
     return tmp.name
