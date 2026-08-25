@@ -1,49 +1,68 @@
 # Petrunko's Reader
 
-Convert any Markdown text into a beautifully formatted, readable web page with high-quality text-to-speech powered by Microsoft Neural voices.
+Markdown → formatted page with TTS. Paste text, read aloud.
 
 ## Features
 
-- **Markdown Rendering** — headings, lists, tables, code blocks with syntax highlighting, blockquotes, images, links
-- **High-Quality TTS** — edge-tts with Microsoft Neural voices (Polina, Dmitry, Jenny, Guy, and 20+ more)
-- **13 Languages** — Ukrainian, Russian, Polish, English, German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech
-- **Auto Language Detection** — the app detects the text language and selects the appropriate voice
-- **Voice Selection** — choose between male and female voices for each language
-- **Speed Control** — adjustable reading speed from 0.7x to 1.5x
-- **Warm Reading Theme** — serif typography (Merriweather) optimized for long-form reading
-- **Dark Code Blocks** — Atom One Dark theme with highlight.js syntax highlighting
-- **Responsive Design** — works on desktop and mobile
+### Markdown Editor
+- Dark code-editor style input area
+- Syntax: headings, bold, italic, lists, tables, blockquotes, code blocks, links, images
+- GFM tables rendered as styled HTML tables
+- Code blocks highlighted with highlight.js (Atom One Dark)
+- 4 built-in samples: Markdown, Python, Table, Article
 
-## Quick Start
+### Reading Mode
+- Cream/warm typography (Merriweather serif) for long reading
+- `Ctrl+Enter` or button to open
+- Word count and detected language shown in header
+
+### Click-to-Read
+- Every paragraph, heading, and list item is clickable
+- Click any element → TTS starts from that point
+- Purple left-border indicator on the currently reading chunk
+- Auto-scroll follows the voice
+
+### TTS (Text-to-Speech)
+- **edge-tts** backend — Microsoft Neural voices, 322 voices, 22 languages
+- Voice selector with gender labels (♂/♀)
+- Auto-detect language from text, pre-select voice
+- 6 speed options (0.7x – 1.5x)
+- Progress bar and chunk counter
+- Pause/Resume/Stop controls
+- Fallback to browser `speechSynthesis` if backend unavailable
+- Markdown syntax cleaned before sending to TTS (no more reading `#` or `|`)
+
+### Languages
+Ukrainian, Russian, Polish, English (US/UK), German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech, Turkish, Arabic, Hindi, Hungarian, Romanian, Swedish, Norwegian, Finnish, Dutch
+
+### Theme Toggle
+- **Dark mode** (default) — dark editor + dark reading screen
+- **Light mode** — light editor + warm cream reading screen
+- Toggle button (☀️/🌙) in top-right corner
+- Preference saved to localStorage
+
+## Run Locally
 
 ```bash
 pip install -r requirements.txt
 python app.py
 ```
 
-Open [http://localhost:5000](http://localhost:5000) in your browser.
+Open `http://localhost:5000`
 
-## Deploy on Render
+## Deploy to Vercel
 
-1. Push this repo to GitHub
-2. Go to [render.com](https://render.com) → New Web Service
-3. Connect your repo
-4. Render auto-detects Python and uses `render.yaml` config
-5. Deploy — done
+The repo includes `vercel.json` pointing to `api/index.py` as a serverless function.
+
+```bash
+git push origin main
+```
+
+Then on Vercel dashboard: **Redeploy → Skip Build Cache**
 
 ## Tech Stack
 
-- **Backend:** Python, Flask, edge-tts
-- **Frontend:** Vanilla JS, marked.js, highlight.js
-- **Fonts:** Inter, Merriweather, JetBrains Mono
-
-## API
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/tts` | POST | Generate audio from text. Body: `{"text": "...", "voice": "uk-UA-PolinaNeural", "rate": "+0%"}` |
-| `/api/tts/voices` | GET | List available voices |
-
-## License
-
-MIT
+- **Backend**: Flask + edge-tts (Python)
+- **Frontend**: Vanilla JS, marked.js, highlight.js
+- **Fonts**: Inter, JetBrains Mono, Merriweather (Google Fonts)
+- **Hosting**: Vercel (serverless) or local
