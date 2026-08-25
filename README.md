@@ -78,6 +78,15 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Preference saved to localStorage, persists between sessions
 - Smooth CSS transitions on theme switch
 
+### Backend Hardening
+- **Voice validation** — `is_valid_voice()` checks against known voices list before TTS call, returns 400 for invalid
+- **Text length limit** — max 5000 characters per request, returns 413 if exceeded
+- **`asyncio.run()`** — used instead of manual `new_event_loop()/close()` to prevent event loop leaks
+- **Path traversal protection** — static file route validates `realpath` stays within `BASE_DIR`, returns 403 for attempts
+- **Temp file cleanup** — `finally` block guarantees temp file deletion even if `open()/read()` fails
+- **Audio cache by hash** — `sha256(text|voice|rate)` cached in `/tmp/tts_cache/`, instant response for repeated requests (works only during warm instance on Vercel)
+- **CORS headers** — `Access-Control-Allow-Origin: *` added via `after_request` for all routes, no extra dependencies
+
 ## Project Structure
 
 ```
