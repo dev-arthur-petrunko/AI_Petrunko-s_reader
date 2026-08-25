@@ -1,6 +1,6 @@
 # Petrunko's Reader
 
-Web app that converts Markdown into a beautifully formatted single-page site with high-quality TTS (Microsoft Neural voices via edge-tts) and click-to-read functionality.
+Web app that converts Markdown into a beautifully formatted single-page site with high-quality TTS (Microsoft Neural voices via edge-tts + Piper TTS for Ukrainian) and click-to-read functionality.
 
 ## Features
 
@@ -38,6 +38,14 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Fallback to browser `speechSynthesis` API when backend unavailable
 - Audio caching by SHA-256 hash of (text + voice + rate)
 
+### Piper TTS (Local Ukrainian Voices)
+- **Piper** engine — fully local, free, no API keys, no external server calls
+- 4 Ukrainian voice models: 3 speakers from `ukrainian-tts-medium` + compact `lada` model
+- Shows "Piper (local)" badge in voice selector, "edge-tts" for cloud voices
+- Same speed slider works for both engines (rate converted to Piper's length_scale)
+- Audio cached as WAV (Piper) or MP3 (edge-tts) by content hash
+- Models must be downloaded once before first run (see Setup below)
+
 ### Supported Languages
 22 languages: Ukrainian, Russian, Polish, English (US/UK), German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech, Turkish, Arabic, Hindi, Hungarian, Romanian, Swedish, Norwegian, Finnish, Dutch.
 
@@ -65,9 +73,11 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 │   ├── __init__.py        # App factory (create_app)
 │   ├── config.py          # Constants: voices, limits, paths
 │   ├── routes.py          # API routes + static file serving
-│   └── tts.py             # edge-tts wrapper with caching
+│   └── tts.py             # edge-tts + Piper wrapper with caching
 ├── api/
 │   └── index.py           # Vercel serverless entry (standalone)
+├── piper_engine.py        # Piper TTS local engine (Ukrainian voices)
+├── piper_voices/          # Downloaded .onnx models (gitignored)
 ├── index.html             # Frontend: editor + reader + TTS controls
 ├── run.py                 # Local/Render entry point
 ├── requirements.txt       # Pinned Python dependencies
@@ -90,6 +100,18 @@ With gunicorn:
 gunicorn "run:app" --bind 0.0.0.0:5000
 ```
 
+## Download Piper Voice Models (one time)
+
+Piper voices require `.onnx` model files to be downloaded once:
+
+```bash
+python -m piper.download_voices uk_UA-ukrainian_tts-medium --download-dir ./piper_voices
+python -m piper.download_voices uk_UA-lada-x_low --download-dir ./piper_voices
+```
+
+This creates `./piper_voices/` with `.onnx` + `.onnx.json` files.
+On Render, set `PIPER_VOICES_DIR` env var to a persistent disk path.
+
 ## Deploy to Vercel
 
 1. Push to GitHub
@@ -98,7 +120,7 @@ gunicorn "run:app" --bind 0.0.0.0:5000
 
 ## Tech Stack
 
-- **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, flask-limiter 3.12
+- **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts 1.2, flask-limiter 3.12
 - **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
 - **Hosting**: Vercel (serverless) or local Flask/gunicorn

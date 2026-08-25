@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, Response, send_from_directory
 
-from app.config import BASE_DIR, MAX_TEXT_LENGTH, EDGE_VOICES, ALL_VOICE_NAMES
+from app.config import BASE_DIR, MAX_TEXT_LENGTH, EDGE_VOICES, ALL_VOICE_NAMES, VOICE_LABELS
 from app.tts import generate_audio_sync
 
 api = Blueprint("api", __name__)
@@ -24,27 +24,19 @@ def add_cors_headers(response: Response) -> Response:
 
 @api.route("/api/tts/voices", methods=["GET"])
 def tts_voices() -> dict:
-    """Return the list of available TTS voices grouped by locale."""
-    return {"voices": EDGE_VOICES}
+    """Return available TTS voices grouped by locale with labels."""
+    return {
+        "voices": EDGE_VOICES,
+        "voice_labels": VOICE_LABELS,
+    }
 
 
 @api.route("/api/tts", methods=["POST"])
 def tts_generate() -> Response:
     """Generate TTS audio from text.
 
-    Request JSON body:
-        text (str): Text to synthesize (required, max 5000 chars).
-        voice (str): Voice name (default: uk-UA-PolinaNeural).
-        rate (str): Speech rate like '+0%', '-10%' (default: '+0%').
-        pitch (str): Pitch like '+0Hz' (default: '+0Hz').
-
-    Returns:
-        MP3 audio bytes with Content-Type: audio/mpeg.
-
-    Error codes:
-        400: Missing text, invalid voice.
-        413: Text too long.
-        500: TTS generation error.
+    Supports both edge-tts (cloud, MP3) and Piper (local, WAV) engines.
+    Piper voices start with 'piper:' prefix.
     """
     data = request.get_json(force=True)
     text = data.get("text", "").strip()
@@ -62,8 +54,8 @@ def tts_generate() -> Response:
         return Response(f"Text too long (max {MAX_TEXT_LENGTH} chars)", status=413)
 
     try:
-        audio_bytes = generate_audio_sync(text, voice, rate, pitch)
-        return Response(audio_bytes, mimetype="audio/mpeg")
+        audio_bytes, mime = generate_audio_sync(text, voice, rate, pitch)
+        return Response(audio_bytes, mimetype=mime)
     except RuntimeError as e:
         return Response(str(e), status=500)
 

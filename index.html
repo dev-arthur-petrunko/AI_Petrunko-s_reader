@@ -404,6 +404,13 @@ const allVoices={
   "nl-NL":[{"name":"nl-NL-ColetteNeural","gender":"Female"},{"name":"nl-NL-FennaNeural","gender":"Female"},{"name":"nl-NL-MaartenNeural","gender":"Male"}],
 };
 
+const PIPER_LABELS={
+  "piper:uk_UA-ukrainian_tts-medium-0":"Ukrainian TTS — голос 1",
+  "piper:uk_UA-ukrainian_tts-medium-1":"Ukrainian TTS — голос 2",
+  "piper:uk_UA-ukrainian_tts-medium-2":"Ukrainian TTS — голос 3",
+  "piper:uk_UA-lada-x_low":"Лада (компактна модель)",
+};
+
 function populateVoices(locale){
   const saved=localStorage.getItem('chitala_voice');
   ttsVoice.innerHTML='';
@@ -416,10 +423,15 @@ function populateVoices(locale){
   voices.forEach(v=>{
     const o=document.createElement('option');
     o.value=v.name;
-    const g=GENDER_ICONS[v.gender]||'';
-    const gn=GENDER_NAMES[v.gender]||'';
-    const short=v.name.split('-').slice(2).join('-').replace('Neural','').replace('Multilingual','');
-    o.textContent=g+' '+short+' ('+gn+')';
+    if(v.name.startsWith('piper:')){
+      const label=PIPER_LABELS[v.name]||v.name;
+      o.textContent='🎵 '+label+' (Piper, локально)';
+    }else{
+      const g=GENDER_ICONS[v.gender]||'';
+      const gn=GENDER_NAMES[v.gender]||'';
+      const short=v.name.split('-').slice(2).join('-').replace('Neural','').replace('Multilingual','');
+      o.textContent=g+' '+short+' ('+gn+')';
+    }
     ttsVoice.appendChild(o);
   });
   if(saved&&voices.find(v=>v.name===saved)){ttsVoice.value=saved}
@@ -430,12 +442,25 @@ ttsVoice.addEventListener('change',saveVoicePref);
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='';
 
+function isPiperVoice(v){return v&&v.startsWith('piper:')}
+
+function updateEngineBadge(){
+  const el=document.getElementById('tts-eng');
+  if(isPiperVoice(ttsVoice.value)){
+    el.textContent='Piper (local)';el.classList.remove('fb');el.style.background='rgba(59,130,246,.15)';el.style.color='#3b82f6';
+  }else{
+    el.textContent='edge-tts';el.classList.remove('fb');el.style.background='';el.style.color='';
+  }
+}
+ttsVoice.addEventListener('change',updateEngineBadge);
+
 async function detectBackend(){
+  if(isPiperVoice(ttsVoice.value)){mode='edge';return}
   try{
     const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'test',voice:'uk-UA-PolinaNeural',rate:'+0%'})});
-    if(r.ok||r.status===500){mode='edge';document.getElementById('tts-eng').textContent='edge-tts';document.getElementById('tts-eng').classList.remove('fb');return}
+    if(r.ok||r.status===500){mode='edge';return}
   }catch{}
-  mode='browser';document.getElementById('tts-eng').textContent='browser';document.getElementById('tts-eng').classList.add('fb');
+  mode='browser';
 }
 
 async function startFrom(i){

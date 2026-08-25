@@ -12,7 +12,13 @@ CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 EDGE_VOICES: dict[str, list[str]] = {
-    "uk-UA": ["uk-UA-OstapNeural", "uk-UA-PolinaNeural"],
+    "uk-UA": [
+        "uk-UA-OstapNeural", "uk-UA-PolinaNeural",
+        "piper:uk_UA-ukrainian_tts-medium-0",
+        "piper:uk_UA-ukrainian_tts-medium-1",
+        "piper:uk_UA-ukrainian_tts-medium-2",
+        "piper:uk_UA-lada-x_low",
+    ],
     "ru-RU": ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"],
     "pl-PL": ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"],
     "en-US": [
@@ -46,3 +52,10 @@ EDGE_VOICES: dict[str, list[str]] = {
 ALL_VOICE_NAMES: set[str] = set()
 for _voices in EDGE_VOICES.values():
     ALL_VOICE_NAMES.update(_voices)
+
+VOICE_LABELS: dict[str, str] = {
+    "piper:uk_UA-ukrainian_tts-medium-0": "Ukrainian TTS — голос 1",
+    "piper:uk_UA-ukrainian_tts-medium-1": "Ukrainian TTS — голос 2",
+    "piper:uk_UA-ukrainian_tts-medium-2": "Ukrainian TTS — голос 3",
+    "piper:uk_UA-lada-x_low": "Лада (компактна модель)",
+}

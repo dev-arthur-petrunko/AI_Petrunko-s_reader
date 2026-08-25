@@ -1,11 +1,10 @@
-"""Vercel serverless entry point.
-
-Standalone file — imports from app/ package for shared logic.
-"""
+"""Vercel serverless entry point with Piper TTS support."""
 
 import os
+import io
 import asyncio
 import hashlib
+import wave
 import tempfile
 from flask import Flask, request, Response
 
@@ -17,8 +16,14 @@ CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 EDGE_VOICES: dict[str, list[str]] = {
-    "uk-UA": ["uk-UA-OstapNeural", "uk-UA-PolinaNeural"],
-    "ru-RU": ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"],
+    "uk-UA": [
+        "uk-UA-OstapNeural", "uk-UA-PolinaNeural",
+        "piper:uk_UA-ukrainian_tts-medium-0",
+        "piper:uk_UA-ukrainian_tts-medium-1",
+        "piper:uk_UA-ukrainian_tts-medium-2",
+        "piper:uk_UA-lada-x_low",
+    ],
+    "ru-RU": ["ru-RU-SvetlanaNeural", "ru-RU-DmitryNeural"],
     "pl-PL": ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"],
     "en-US": [
         "en-US-AvaNeural", "en-US-AndrewNeural", "en-US-EmmaNeural",
@@ -48,9 +53,18 @@ EDGE_VOICES: dict[str, list[str]] = {
     "nl-NL": ["nl-NL-ColetteNeural", "nl-NL-FennaNeural", "nl-NL-MaartenNeural"],
 }
 
+VOICE_LABELS: dict[str, str] = {
+    "piper:uk_UA-ukrainian_tts-medium-0": "Ukrainian TTS — голос 1",
+    "piper:uk_UA-ukrainian_tts-medium-1": "Ukrainian TTS — голос 2",
+    "piper:uk_UA-ukrainian_tts-medium-2": "Ukrainian TTS — голос 3",
+    "piper:uk_UA-lada-x_low": "Лада (компактна модель)",
+}
+
 ALL_VOICE_NAMES: set[str] = set()
 for _voices in EDGE_VOICES.values():
     ALL_VOICE_NAMES.update(_voices)
+
+PIPER_VOICES_DIR: str = os.environ.get("PIPER_VOICES_DIR", "./piper_voices")
 
 
 def cache_key(text: str, voice: str, rate: str) -> str:
@@ -61,10 +75,59 @@ def is_valid_voice(voice: str) -> bool:
     return voice in ALL_VOICE_NAMES
 
 
+def rate_to_length_scale(rate: str) -> float:
+    try:
+        percent = int(rate.replace("%", "").replace("+", ""))
+    except ValueError:
+        return 1.0
+    return 1.0 - (percent / 100.0)
+
+
+def is_piper_voice(voice_id: str) -> bool:
+    return voice_id.startswith("piper:")
+
+
+def _synthesize_piper(text: str, voice_id: str, length_scale: float) -> bytes:
+    """Synthesize via Piper. Returns WAV bytes."""
+    from functools import lru_cache
+
+    model_map = {
+        "piper:uk_UA-ukrainian_tts-medium-0": ("uk_UA-ukrainian_tts-medium", 0),
+        "piper:uk_UA-ukrainian_tts-medium-1": ("uk_UA-ukrainian_tts-medium", 1),
+        "piper:uk_UA-ukrainian_tts-medium-2": ("uk_UA-ukrainian_tts-medium", 2),
+        "piper:uk_UA-lada-x_low": ("uk_UA-lada-x_low", None),
+    }
+
+    if voice_id not in model_map:
+        raise ValueError(f"Unknown piper voice: {voice_id}")
+
+    model_name, speaker_id = model_map[voice_id]
+    onnx_path = os.path.join(PIPER_VOICES_DIR, f"{model_name}.onnx")
+
+    if not os.path.exists(onnx_path):
+        raise RuntimeError(
+            f"Model '{model_name}' not found in {PIPER_VOICES_DIR}. "
+            f"Download: python -m piper.download_voices {model_name} "
+            f"--download-dir {PIPER_VOICES_DIR}"
+        )
+
+    from piper import PiperVoice
+    voice = PiperVoice.load(onnx_path)
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        synth_kwargs: dict = {"length_scale": length_scale}
+        if speaker_id is not None:
+            synth_kwargs["speaker_id"] = speaker_id
+        voice.synthesize(text, wav_file, **synth_kwargs)
+
+    return buf.getvalue()
+
+
 import edge_tts
 
 
-async def _generate_audio(text: str, voice: str, rate: str, pitch: str) -> str:
+async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> str:
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tmp.close()
     communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
@@ -82,7 +145,7 @@ def add_cors_headers(response: Response) -> Response:
 
 @app.route("/api/tts/voices", methods=["GET"])
 def tts_voices() -> dict:
-    return {"voices": EDGE_VOICES}
+    return {"voices": EDGE_VOICES, "voice_labels": VOICE_LABELS}
 
 
 @app.route("/api/tts", methods=["POST"])
@@ -103,23 +166,31 @@ def tts_generate() -> Response:
         return Response(f"Text too long (max {MAX_TEXT_LENGTH} chars)", status=413)
 
     key = cache_key(text, voice, rate)
-    cached_path = os.path.join(CACHE_DIR, f"{key}.mp3")
+    ext = ".wav" if is_piper_voice(voice) else ".mp3"
+    cached_path = os.path.join(CACHE_DIR, f"{key}{ext}")
     if os.path.exists(cached_path):
         with open(cached_path, "rb") as f:
-            return Response(f.read(), mimetype="audio/mpeg")
+            mime = "audio/wav" if ext == ".wav" else "audio/mpeg"
+            return Response(f.read(), mimetype=mime)
 
     try:
-        audio_path = asyncio.run(_generate_audio(text, voice, rate, pitch))
-        try:
-            with open(audio_path, "rb") as f:
-                audio_bytes = f.read()
-        finally:
-            if os.path.exists(audio_path):
-                os.unlink(audio_path)
+        if is_piper_voice(voice):
+            length_scale = rate_to_length_scale(rate)
+            audio_bytes = _synthesize_piper(text, voice, length_scale)
+            mime = "audio/wav"
+        else:
+            audio_path = asyncio.run(_generate_edge_audio(text, voice, rate, pitch))
+            try:
+                with open(audio_path, "rb") as f:
+                    audio_bytes = f.read()
+            finally:
+                if os.path.exists(audio_path):
+                    os.unlink(audio_path)
+            mime = "audio/mpeg"
 
         with open(cached_path, "wb") as f:
             f.write(audio_bytes)
 
-        return Response(audio_bytes, mimetype="audio/mpeg")
+        return Response(audio_bytes, mimetype=mime)
     except Exception as e:
         return Response(f"TTS error: {e}", status=500)
