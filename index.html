@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -339,7 +340,7 @@ function highlightChunk(i){
 
 function openReader(){
   const t=editor.value.trim();if(!t)return;
-  artEl.innerHTML=marked.parse(t);
+  artEl.innerHTML=DOMPurify.sanitize(marked.parse(t),{ADD_TAGS:['code','pre'],ADD_ATTR:['class']});
   artEl.querySelectorAll('pre code').forEach(b=>hljs.highlightElement(b));
   buildChunks();
   document.getElementById('input-screen').style.display='none';

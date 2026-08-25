@@ -1,17 +1,22 @@
+"""Vercel serverless entry point.
+
+Standalone file — imports from app/ package for shared logic.
+"""
+
 import os
 import asyncio
 import hashlib
-import edge_tts
 import tempfile
 from flask import Flask, request, Response
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
 
-MAX_TEXT_LENGTH = 5000
-CACHE_DIR = os.path.join(tempfile.gettempdir(), "tts_cache")
+MAX_TEXT_LENGTH: int = 5000
+CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-EDGE_VOICES = {
+EDGE_VOICES: dict[str, list[str]] = {
     "uk-UA": ["uk-UA-OstapNeural", "uk-UA-PolinaNeural"],
     "ru-RU": ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"],
     "pl-PL": ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"],
@@ -43,21 +48,32 @@ EDGE_VOICES = {
     "nl-NL": ["nl-NL-ColetteNeural", "nl-NL-FennaNeural", "nl-NL-MaartenNeural"],
 }
 
-ALL_VOICE_NAMES = set()
-for voices in EDGE_VOICES.values():
-    ALL_VOICE_NAMES.update(voices)
+ALL_VOICE_NAMES: set[str] = set()
+for _voices in EDGE_VOICES.values():
+    ALL_VOICE_NAMES.update(_voices)
 
 
-def is_valid_voice(voice):
-    return voice in ALL_VOICE_NAMES
-
-
-def cache_key(text, voice, rate):
+def cache_key(text: str, voice: str, rate: str) -> str:
     return hashlib.sha256(f"{text}|{voice}|{rate}".encode()).hexdigest()
 
 
+def is_valid_voice(voice: str) -> bool:
+    return voice in ALL_VOICE_NAMES
+
+
+import edge_tts
+
+
+async def _generate_audio(text: str, voice: str, rate: str, pitch: str) -> str:
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tmp.close()
+    communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
+    await communicate.save(tmp.name)
+    return tmp.name
+
+
 @app.after_request
-def add_cors_headers(response):
+def add_cors_headers(response: Response) -> Response:
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
@@ -65,12 +81,12 @@ def add_cors_headers(response):
 
 
 @app.route("/api/tts/voices", methods=["GET"])
-def tts_voices():
+def tts_voices() -> dict:
     return {"voices": EDGE_VOICES}
 
 
 @app.route("/api/tts", methods=["POST"])
-def tts_generate():
+def tts_generate() -> Response:
     data = request.get_json(force=True)
     text = data.get("text", "").strip()
     voice = data.get("voice", "uk-UA-PolinaNeural")
@@ -94,7 +110,6 @@ def tts_generate():
 
     try:
         audio_path = asyncio.run(_generate_audio(text, voice, rate, pitch))
-
         try:
             with open(audio_path, "rb") as f:
                 audio_bytes = f.read()
@@ -106,14 +121,5 @@ def tts_generate():
             f.write(audio_bytes)
 
         return Response(audio_bytes, mimetype="audio/mpeg")
-
     except Exception as e:
         return Response(f"TTS error: {e}", status=500)
-
-
-async def _generate_audio(text, voice, rate, pitch):
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tmp.close()
-    communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
-    await communicate.save(tmp.name)
-    return tmp.name
