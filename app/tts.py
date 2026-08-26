@@ -1,4 +1,4 @@
-"""Text-to-Speech service: edge-tts (cloud) + Piper (local)."""
+"""Сервіс TTS: edge-tts (хмарний) + Piper (локальний)."""
 
 import os
 import re
@@ -23,7 +23,6 @@ except ImportError:
 
 
 def strip_markdown_for_tts(text: str) -> str:
-    """Remove markdown syntax from text before TTS synthesis."""
     text = re.sub(r'```[\s\S]*?```', ' ', text)
     text = re.sub(r'`[^`]+`', ' ', text)
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
@@ -43,19 +42,16 @@ def strip_markdown_for_tts(text: str) -> str:
 
 
 def cache_key(text: str, voice: str, rate: str) -> str:
-    """Generate SHA-256 cache key from TTS parameters."""
     return hashlib.sha256(f"{text}|{voice}|{rate}".encode()).hexdigest()
 
 
 def get_cached_path(text: str, voice: str, rate: str) -> Optional[str]:
-    """Return path to cached audio if it exists, else None."""
     ext = ".wav" if voice.startswith("piper:") else ".mp3"
     path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate)}{ext}")
     return path if os.path.exists(path) else None
 
 
 def save_to_cache(audio_bytes: bytes, text: str, voice: str, rate: str) -> str:
-    """Save audio bytes to cache and return the path."""
     ext = ".wav" if voice.startswith("piper:") else ".mp3"
     path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate)}{ext}")
     with open(path, "wb") as f:
@@ -64,7 +60,6 @@ def save_to_cache(audio_bytes: bytes, text: str, voice: str, rate: str) -> str:
 
 
 def cleanup_cache(max_age_days: int = 7) -> int:
-    """Remove cached files older than max_age_days. Returns count removed."""
     if not os.path.isdir(CACHE_DIR):
         return 0
     cutoff = time.time() - (max_age_days * 86400)
@@ -83,10 +78,6 @@ def cleanup_cache(max_age_days: int = 7) -> int:
 
 
 def rate_to_length_scale(rate: str) -> float:
-    """Convert edge-tts rate format ('+0%', '-20%') to Piper length_scale.
-
-    Piper: >1.0 slower, <1.0 faster. edge-tts: +faster, -slower.
-    """
     try:
         percent = int(rate.replace("%", "").replace("+", ""))
     except ValueError:
@@ -95,7 +86,6 @@ def rate_to_length_scale(rate: str) -> float:
 
 
 async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> str:
-    """Generate MP3 via edge-tts. Returns temp file path."""
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tmp.close()
     communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
@@ -104,19 +94,6 @@ async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> 
 
 
 def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[bytes, str]:
-    """Generate TTS audio. Returns (audio_bytes, mime_type).
-
-    Routes to Piper for piper:* voices, edge-tts for all others.
-    Strips markdown syntax before synthesis.
-    Tries cache first.
-
-    Returns:
-        Tuple of (audio_bytes, mimetype).
-
-    Raises:
-        RuntimeError: If generation fails.
-        ValueError: If Piper is not installed but a piper voice is requested.
-    """
     cleaned = strip_markdown_for_tts(text)
 
     cached = get_cached_path(cleaned, voice, rate)

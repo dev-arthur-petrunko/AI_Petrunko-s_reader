@@ -1,4 +1,4 @@
-"""Tests for Petrunko's Reader Flask app."""
+"""Тести для Flask-додатку Petrunko's Reader."""
 import json
 import os
 import sys
@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app import create_app
 
 
-MOCK_AUDIO = b"\x00" * 100  # fake audio bytes
+MOCK_AUDIO = b"\x00" * 100
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ class TestTTSValidation:
     def test_text_too_long_returns_413(self, client):
         resp = client.post(
             "/api/tts",
-            data=json.dumps({"text": "a" * 60000, "voice": "uk-UA-PolinaNeural"}),
+            data=json.dumps({"text": "a" * 11000, "voice": "uk-UA-PolinaNeural"}),
             content_type="application/json",
         )
         assert resp.status_code == 413
@@ -83,7 +83,7 @@ class TestTTSValidation:
     def test_text_one_over_limit_rejected(self, client):
         resp = client.post(
             "/api/tts",
-            data=json.dumps({"text": "a" * 50001, "voice": "en-US-AvaNeural"}),
+            data=json.dumps({"text": "a" * 10001, "voice": "en-US-AvaNeural"}),
             content_type="application/json",
         )
         assert resp.status_code == 413

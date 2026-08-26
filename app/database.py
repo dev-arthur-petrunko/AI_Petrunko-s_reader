@@ -1,4 +1,4 @@
-"""Knowledge Base — SQLite storage for uploaded documents with auto-cleanup."""
+"""База знань — сховище SQLite для завантажених документів з автоочищенням."""
 
 import os
 import time
@@ -21,7 +21,6 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create tables if they don't exist."""
     conn = _get_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS documents (
@@ -40,7 +39,6 @@ def init_db() -> None:
 
 
 def cleanup_stale(max_age_days: int = MAX_AGE_DAYS) -> int:
-    """Remove documents not accessed within max_age_days. Returns count removed."""
     conn = _get_conn()
     cutoff = time.time() - (max_age_days * 86400)
     cur = conn.execute("DELETE FROM documents WHERE last_accessed < ?", (cutoff,))
@@ -53,7 +51,6 @@ def cleanup_stale(max_age_days: int = MAX_AGE_DAYS) -> int:
 
 
 def add_document(title: str, content: str, fmt: str = "txt") -> int:
-    """Add a document. Returns its ID."""
     word_count = len(content.split())
     now = time.time()
     conn = _get_conn()
@@ -68,7 +65,6 @@ def add_document(title: str, content: str, fmt: str = "txt") -> int:
 
 
 def list_documents() -> list[dict]:
-    """Return all documents (title, id, word_count, created_at) without content."""
     conn = _get_conn()
     rows = conn.execute(
         "SELECT id, title, word_count, created_at FROM documents ORDER BY last_accessed DESC"
@@ -78,7 +74,6 @@ def list_documents() -> list[dict]:
 
 
 def get_document(doc_id: int) -> Optional[dict]:
-    """Get document by ID. Updates last_accessed. Returns None if not found."""
     conn = _get_conn()
     row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if row:
@@ -92,7 +87,6 @@ def get_document(doc_id: int) -> Optional[dict]:
 
 
 def delete_document(doc_id: int) -> bool:
-    """Delete a document. Returns True if it existed."""
     conn = _get_conn()
     cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     deleted = cur.rowcount > 0
@@ -102,7 +96,6 @@ def delete_document(doc_id: int) -> bool:
 
 
 def search_documents(query: str) -> list[dict]:
-    """Simple LIKE search on title and content."""
     conn = _get_conn()
     pattern = f"%{query}%"
     rows = conn.execute(

@@ -1,11 +1,4 @@
-"""Entry point for local development and Render deployment.
-
-Usage:
-    python run.py
-
-Or with gunicorn:
-    gunicorn "run:app" --bind 0.0.0.0:5000
-"""
+"""Точка входу для локальної розробки та деплою на Render."""
 
 from app import app
 

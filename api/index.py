@@ -1,4 +1,4 @@
-"""Vercel serverless entry point with Piper TTS support."""
+"""Точка входу Vercel serverless з підтримкою Piper TTS."""
 
 import os
 import io
@@ -9,6 +9,7 @@ import tempfile
 import logging
 
 from flask import Flask, request, Response, send_from_directory
+import edge_tts
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
 MAX_TEXT_LENGTH: int = 10000
 CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")
@@ -95,7 +96,6 @@ def is_piper_voice(voice_id: str) -> bool:
 
 
 def strip_markdown_for_tts(text: str) -> str:
-    """Remove markdown syntax from text before TTS synthesis."""
     import re
     text = re.sub(r'```[\s\S]*?```', ' ', text)
     text = re.sub(r'`[^`]+`', ' ', text)
@@ -116,9 +116,7 @@ def strip_markdown_for_tts(text: str) -> str:
 
 
 def _synthesize_piper(text: str, voice_id: str, length_scale: float) -> bytes:
-    """Synthesize via Piper. Returns WAV bytes."""
-    from functools import lru_cache
-
+    """Синтез мови через Piper. Повертає WAV-байти."""
     model_map = {
         "piper:uk_UA-ukrainian_tts-medium-0": ("uk_UA-ukrainian_tts-medium", 0),
         "piper:uk_UA-ukrainian_tts-medium-1": ("uk_UA-ukrainian_tts-medium", 1),
@@ -150,9 +148,6 @@ def _synthesize_piper(text: str, voice_id: str, length_scale: float) -> bytes:
         voice.synthesize(text, wav_file, **synth_kwargs)
 
     return buf.getvalue()
-
-
-import edge_tts
 
 
 async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> str:
@@ -237,7 +232,7 @@ def tts_generate() -> Response:
         return Response("TTS generation failed", status=500)
 
 
-# ── Knowledge Base (works on local/Render, disabled on Vercel serverless) ──
+# ── База знань (працює локально та на Render, недоступна на Vercel serverless) ──
 
 DB_PATH = os.path.join(PROJECT_ROOT, "knowledge_base.db")
 
@@ -281,13 +276,13 @@ def docs_list():
 def docs_upload():
     if not KB_OK:
         return Response("Knowledge base not available on serverless", status=501)
-    import time, sqlite3, os as _os
+    import time, sqlite3
     allowed = {".txt", ".md", ".markdown", ".text"}
     if request.content_type and "multipart" in request.content_type:
         f = request.files.get("file")
         if not f or not f.filename:
             return Response("No file", status=400)
-        ext = _os.path.splitext(f.filename)[1].lower()
+        ext = os.path.splitext(f.filename)[1].lower()
         if ext not in allowed:
             return Response(f"Unsupported format: {ext}", status=400)
         title = request.form.get("title", "").strip() or f.filename

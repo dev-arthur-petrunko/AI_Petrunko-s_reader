@@ -1,4 +1,4 @@
-"""Petrunko's Reader — Flask application package."""
+"""Petrunko's Reader — пакет додатку Flask."""
 
 from app.routes import create_app
 

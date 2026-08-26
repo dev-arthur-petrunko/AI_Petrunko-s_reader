@@ -1,4 +1,4 @@
-"""Flask routes for Petrunko's Reader."""
+"""Маршрути Flask для Petrunko's Reader."""
 
 import os
 import logging
@@ -18,13 +18,11 @@ ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".text"}
 
 
 def is_valid_voice(voice: str) -> bool:
-    """Check if a voice name is in the allowed list."""
     return voice in ALL_VOICE_NAMES
 
 
 @api.after_request
 def add_cors_headers(response: Response) -> Response:
-    """Add CORS headers to all API responses."""
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
@@ -33,13 +31,11 @@ def add_cors_headers(response: Response) -> Response:
 
 @api.route("/health", methods=["GET"])
 def health_check() -> dict:
-    """Health-check endpoint for monitoring."""
     return {"status": "ok"}
 
 
 @api.route("/api/tts/voices", methods=["GET"])
 def tts_voices() -> dict:
-    """Return available TTS voices grouped by locale with labels."""
     return {
         "voices": EDGE_VOICES,
         "voice_labels": VOICE_LABELS,
@@ -48,7 +44,6 @@ def tts_voices() -> dict:
 
 @api.route("/api/tts", methods=["POST"])
 def tts_generate() -> Response:
-    """Generate TTS audio from text."""
     data = request.get_json(force=True)
     text = data.get("text", "").strip()
     voice = data.get("voice", "uk-UA-PolinaNeural")
@@ -74,12 +69,11 @@ def tts_generate() -> Response:
         return Response("TTS generation failed", status=status)
 
 
-# ── Knowledge Base ──────────────────────────────────────────────
+# ── База знань ─────────────────────────────────────────────────
 
 
 @api.route("/api/docs", methods=["GET"])
 def docs_list() -> dict:
-    """List all documents in the knowledge base."""
     from app.database import list_documents, search_documents
     query = request.args.get("q", "").strip()
     if query:
@@ -89,10 +83,7 @@ def docs_list() -> dict:
 
 @api.route("/api/docs", methods=["POST"])
 def docs_upload():
-    """Upload a document to the knowledge base.
-    Accepts multipart/form-data with 'file' field (txt/md) or JSON with 'title' + 'content'.
-    """
-    from app.database import add_document, MAX_AGE_DAYS
+    from app.database import add_document
 
     if request.content_type and "multipart" in request.content_type:
         file = request.files.get("file")
@@ -124,7 +115,6 @@ def docs_upload():
 
 @api.route("/api/docs/<int:doc_id>", methods=["GET"])
 def docs_get(doc_id: int):
-    """Get a document by ID (for reading)."""
     from app.database import get_document
     doc = get_document(doc_id)
     if not doc:
@@ -134,7 +124,6 @@ def docs_get(doc_id: int):
 
 @api.route("/api/docs/<int:doc_id>", methods=["DELETE"])
 def docs_delete(doc_id: int):
-    """Delete a document."""
     from app.database import delete_document
     deleted = delete_document(doc_id)
     if not deleted:
@@ -143,11 +132,10 @@ def docs_delete(doc_id: int):
 
 
 def create_app() -> "Flask":
-    """Create and configure the Flask application."""
     from flask import Flask
 
     app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
-    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
+    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
     try:
         from flask_limiter import Limiter
@@ -161,7 +149,6 @@ def create_app() -> "Flask":
     app.register_blueprint(api)
     cleanup_cache()
 
-    # Initialize knowledge base
     try:
         from app.database import init_db, cleanup_stale
         init_db()
