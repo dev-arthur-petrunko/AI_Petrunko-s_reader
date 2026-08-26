@@ -566,7 +566,7 @@ ttsVoice.addEventListener('change',()=>{
 });
 ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();startFrom(pos)}});
 
-let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='';
+let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='',ttsGeneration=0;
 
 function isPiperVoice(v){return v&&v.startsWith('piper:')}
 
@@ -590,11 +590,14 @@ async function detectBackend(){
 }
 
 async function startFrom(i){
+  const gen=++ttsGeneration;
   await detectBackend();
+  if(gen!==ttsGeneration)return;
   ttsStop();
   idx=i;
   curVoice=ttsVoice.value||'uk-UA-PolinaNeural';
   curRate=ttsSpeed.value;
+  if(gen!==ttsGeneration)return;
   if(mode==='edge')playEdge();else readBr();
 }
 
@@ -613,8 +616,8 @@ async function playEdge(){
     const url=await edgeSpeak(ttsChunks[idx],curVoice,curRate);
     if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=url;
     ttsAudioEl.src=url;
-    ttsAudioEl.onended=()=>{stopWordHighlight();idx++;updateP();playEdge()};
-    ttsAudioEl.onerror=()=>{stopWordHighlight();idx++;updateP();playEdge()};
+    ttsAudioEl.onended=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();playEdge()};
+    ttsAudioEl.onerror=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();playEdge()};
     await ttsAudioEl.play();playing=true;
     startWordHighlight(ttsAudioEl,idx);
   }catch(e){
@@ -649,8 +652,8 @@ function readBr(){
       }
     };
   }
-  u.onend=()=>{stopWordHighlight();idx++;updateP();readBr()};
-  u.onerror=e=>{if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();readBr()}};
+  u.onend=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();readBr()};
+  u.onerror=e=>{if(!playing)return;if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();readBr()}};
   speechSynthesis.speak(u);playing=true;
   document.getElementById('tts-st').textContent='🔊';
 }
@@ -682,6 +685,7 @@ function ttsToggle(){
 
 function ttsStop(){
   speechSynthesis.cancel();
+  ttsAudioEl.onended=null;ttsAudioEl.onerror=null;
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null}
   playing=false;idx=0;
