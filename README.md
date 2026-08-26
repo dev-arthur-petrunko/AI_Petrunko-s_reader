@@ -21,31 +21,28 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 
 ### Responsive Design
 - Mobile-first responsive layout: adapts from 320px phones to desktop
-- Breakpoints at 900px (tablet) and 600px (phone) for optimal layout at every size
-- TTS bar compacts on smaller screens: language/voice selects shrink, buttons resize
-- Reading mode: article padding, font sizes, and heading scale adjust for small screens
-- Editor mode: stacked layout on mobile, full-width "Read" button
-- Native `<select>` dropdowns styled with dark backgrounds + SVG arrows to match theme
+- Breakpoints at 900px (tablet) and 600px (phone)
+- TTS bar compacts on smaller screens
+- Native `<select>` dropdowns styled with dark backgrounds + SVG arrows
 
 ### Click-to-Read
 - Every paragraph, heading, and list item is individually clickable
 - Click any element to start TTS reading from that exact point
 - Purple left-border indicator highlights the currently playing chunk
 - Auto-scroll follows the voice position
-- Click the same element again to stop
 
 ### TTS (Text-to-Speech)
 - **edge-tts** backend — Microsoft Azure Neural voices, 80+ voices across 22 languages
 - Voice selector dropdown showing voice name + gender (Male / Female)
 - Voice preference saved to localStorage
 - Auto-detect language from text content, pre-select matching voice
-- Select dropdowns styled with dark background + custom SVG arrow (no white flash on dark theme)
 - 6 speed presets: 0.7x — 1.5x
 - Progress bar with percentage and chunk counter
 - Play / Pause / Resume / Stop controls
-- Markdown syntax cleaned before TTS (no reading `#`, `|`, backticks)
+- Markdown syntax cleaned before TTS (no reading `#`, `|`, backticks, links, images)
 - Fallback to browser `speechSynthesis` API when backend unavailable
 - Audio caching by SHA-256 hash of (text + voice + rate)
+- Auto-cleanup of cached files older than 7 days
 
 ### Piper TTS (Local Ukrainian Voices)
 - **Piper** engine — fully local, free, no API keys, no external server calls
@@ -54,6 +51,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Same speed slider works for both engines (rate converted to Piper's length_scale)
 - Audio cached as WAV (Piper) or MP3 (edge-tts) by content hash
 - Models must be downloaded once before first run (see Setup below)
+- Returns 503 when models are missing (not 500)
 
 ### Supported Languages
 22 languages: Ukrainian, Russian, Polish, English (US/UK), German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech, Turkish, Arabic, Hindi, Hungarian, Romanian, Swedish, Norwegian, Finnish, Dutch.
@@ -64,15 +62,22 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Light mode: light editor + warm cream reading screen
 - Preference saved to localStorage
 
-### Security
+## Security
+
+- **Static file isolation**: all public files in `static/` directory, source code not accessible via HTTP
 - **XSS protection**: DOMPurify sanitizes rendered Markdown HTML
 - **Voice validation**: only known voice names accepted by API
-- **Text length limit**: max 5000 characters per TTS request
-- **MAX_CONTENT_LENGTH**: 1 MB max request size
-- **Path traversal protection**: static file routes validated against BASE_DIR
+- **Text length limit**: max 50,000 characters per TTS request
+- **MAX_CONTENT_LENGTH**: 2 MB max request size
+- **Path traversal protection**: static file routes use `send_from_directory` with validated paths
 - **Rate limiting**: flask-limiter (30 TTS requests/minute, 60 general/minute)
 - **CORS**: controlled Access-Control headers on API routes
 - **Temp file cleanup**: guaranteed via finally blocks
+- **Error logging**: all errors logged server-side, generic messages returned to client
+
+## Health Check
+
+`GET /health` → `{"status": "ok"}` — for monitoring on Render/Vercel.
 
 ## Project Structure
 
@@ -81,15 +86,22 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 ├── app/                   # Flask application package
 │   ├── __init__.py        # App factory (create_app)
 │   ├── config.py          # Constants: voices, limits, paths
-│   ├── routes.py          # API routes + static file serving
-│   └── tts.py             # edge-tts + Piper wrapper with caching
+│   ├── routes.py          # API routes + health check + static serving
+│   └── tts.py             # edge-tts + Piper wrapper + markdown stripping + caching
 ├── api/
 │   └── index.py           # Vercel serverless entry (standalone)
+├── static/
+│   └── index.html         # Frontend: editor + reader + TTS controls
 ├── piper_engine.py        # Piper TTS local engine (Ukrainian voices)
 ├── piper_voices/          # Downloaded .onnx models (gitignored)
-├── index.html             # Frontend: editor + reader + TTS controls
+├── tests/
+│   └── test_app.py        # pytest tests (28 tests)
+├── .github/
+│   └── workflows/
+│       └── ci.yml         # GitHub Actions CI (pytest on push/PR)
 ├── run.py                 # Local/Render entry point
 ├── requirements.txt       # Pinned Python dependencies
+├── render.yaml            # Render config
 ├── vercel.json            # Vercel config — maxDuration: 60s
 ├── .gitignore
 └── README.md
@@ -121,6 +133,16 @@ python -m piper.download_voices uk_UA-lada-x_low --download-dir ./piper_voices
 This creates `./piper_voices/` with `.onnx` + `.onnx.json` files.
 On Render, set `PIPER_VOICES_DIR` env var to a persistent disk path.
 
+**Recommended default voice**: `uk-UA-PolinaNeural` (edge-tts) — best quality for Ukrainian.
+Piper `uk_UA-ukrainian_tts-medium` voices are a good free alternative.
+
+## Tests
+
+```bash
+pip install pytest
+pytest tests/ -v
+```
+
 ## Deploy to Vercel
 
 1. Push to GitHub
@@ -133,4 +155,5 @@ On Render, set `PIPER_VOICES_DIR` env var to a persistent disk path.
 - **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
 - **Hosting**: Vercel (serverless) or local Flask/gunicorn
+- **Testing**: pytest, GitHub Actions CI
 - **Data**: localStorage only (no database)

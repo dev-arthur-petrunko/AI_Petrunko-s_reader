@@ -6,12 +6,16 @@ import asyncio
 import hashlib
 import wave
 import tempfile
-from flask import Flask, request, Response
+import logging
 
-app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
+from flask import Flask, request, Response, send_from_directory
 
-MAX_TEXT_LENGTH: int = 5000
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__, static_folder="static", static_url_path="/static")
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
+
+MAX_TEXT_LENGTH: int = 50000
 CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -87,6 +91,27 @@ def is_piper_voice(voice_id: str) -> bool:
     return voice_id.startswith("piper:")
 
 
+def strip_markdown_for_tts(text: str) -> str:
+    """Remove markdown syntax from text before TTS synthesis."""
+    import re
+    text = re.sub(r'```[\s\S]*?```', ' ', text)
+    text = re.sub(r'`[^`]+`', ' ', text)
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    text = re.sub(r'_(.+?)_', r'\1', text)
+    text = re.sub(r'!\[([^\]]*)\]\([^)]+\)', ' ', text)
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\|', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\|$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\|', ',', text)
+    text = re.sub(r'^[-*_]{3,}$', ' ', text, flags=re.MULTILINE)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def _synthesize_piper(text: str, voice_id: str, length_scale: float) -> bytes:
     """Synthesize via Piper. Returns WAV bytes."""
     from functools import lru_cache
@@ -143,6 +168,16 @@ def add_cors_headers(response: Response) -> Response:
     return response
 
 
+@app.route("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.route("/")
+def index():
+    return send_from_directory("static", "index.html")
+
+
 @app.route("/api/tts/voices", methods=["GET"])
 def tts_voices() -> dict:
     return {"voices": EDGE_VOICES, "voice_labels": VOICE_LABELS}
@@ -165,7 +200,9 @@ def tts_generate() -> Response:
     if len(text) > MAX_TEXT_LENGTH:
         return Response(f"Text too long (max {MAX_TEXT_LENGTH} chars)", status=413)
 
-    key = cache_key(text, voice, rate)
+    cleaned = strip_markdown_for_tts(text)
+
+    key = cache_key(cleaned, voice, rate)
     ext = ".wav" if is_piper_voice(voice) else ".mp3"
     cached_path = os.path.join(CACHE_DIR, f"{key}{ext}")
     if os.path.exists(cached_path):
@@ -176,10 +213,10 @@ def tts_generate() -> Response:
     try:
         if is_piper_voice(voice):
             length_scale = rate_to_length_scale(rate)
-            audio_bytes = _synthesize_piper(text, voice, length_scale)
+            audio_bytes = _synthesize_piper(cleaned, voice, length_scale)
             mime = "audio/wav"
         else:
-            audio_path = asyncio.run(_generate_edge_audio(text, voice, rate, pitch))
+            audio_path = asyncio.run(_generate_edge_audio(cleaned, voice, rate, pitch))
             try:
                 with open(audio_path, "rb") as f:
                     audio_bytes = f.read()
@@ -193,4 +230,5 @@ def tts_generate() -> Response:
 
         return Response(audio_bytes, mimetype=mime)
     except Exception as e:
-        return Response(f"TTS error: {e}", status=500)
+        logger.error("TTS error: %s", e, exc_info=True)
+        return Response("TTS generation failed", status=500)

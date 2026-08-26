@@ -1,11 +1,18 @@
 """Flask routes for Petrunko's Reader."""
 
+import os
+import logging
+
 from flask import Blueprint, request, Response, send_from_directory
 
 from app.config import BASE_DIR, MAX_TEXT_LENGTH, EDGE_VOICES, ALL_VOICE_NAMES, VOICE_LABELS
-from app.tts import generate_audio_sync
+from app.tts import generate_audio_sync, cleanup_cache
+
+logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__)
+
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 
 def is_valid_voice(voice: str) -> bool:
@@ -20,6 +27,12 @@ def add_cors_headers(response: Response) -> Response:
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
+
+
+@api.route("/health", methods=["GET"])
+def health_check() -> dict:
+    """Health-check endpoint for monitoring."""
+    return {"status": "ok"}
 
 
 @api.route("/api/tts/voices", methods=["GET"])
@@ -57,15 +70,18 @@ def tts_generate() -> Response:
         audio_bytes, mime = generate_audio_sync(text, voice, rate, pitch)
         return Response(audio_bytes, mimetype=mime)
     except RuntimeError as e:
-        return Response(str(e), status=500)
+        logger.error("TTS error: %s", e, exc_info=True)
+        msg = str(e).lower()
+        status = 503 if ("not installed" in msg or "not found" in msg) else 500
+        return Response("TTS generation failed", status=status)
 
 
 def create_app() -> "Flask":
     """Create and configure the Flask application."""
     from flask import Flask
 
-    app = Flask(__name__)
-    app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
+    app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
+    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
 
     try:
         from flask_limiter import Limiter
@@ -77,13 +93,17 @@ def create_app() -> "Flask":
         pass
 
     app.register_blueprint(api)
+    cleanup_cache()
 
     @app.route("/")
     def index():
-        return send_from_directory(BASE_DIR, "index.html")
+        return send_from_directory(STATIC_DIR, "index.html")
 
     @app.route("/favicon.ico")
     def favicon():
-        return send_from_directory(BASE_DIR, "favicon.ico")
+        path = os.path.join(STATIC_DIR, "favicon.ico")
+        if os.path.exists(path):
+            return send_from_directory(STATIC_DIR, "favicon.ico")
+        return Response(status=404)
 
     return app
