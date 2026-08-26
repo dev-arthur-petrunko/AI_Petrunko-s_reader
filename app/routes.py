@@ -14,7 +14,7 @@ api = Blueprint("api", __name__)
 
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".text"}
+ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3"}
 
 
 def is_valid_voice(voice: str) -> bool:
@@ -91,10 +91,18 @@ def docs_upload():
             return Response("No file", status=400)
         ext = os.path.splitext(file.filename)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
-            return Response(f"Unsupported format: {ext}. Use .txt or .md", status=400)
+            return Response(f"Unsupported format: {ext}", status=400)
         title = request.form.get("title", "").strip() or file.filename
-        content = file.read().decode("utf-8", errors="replace")
-        fmt = ext.lstrip(".")
+        raw = file.read()
+
+        if ext in {".txt", ".md", ".markdown", ".text"}:
+            content = raw.decode("utf-8", errors="replace")
+            fmt = ext.lstrip(".")
+        else:
+            from app.document_parser import parse_document
+            content, fmt = parse_document(file.filename, raw)
+            if not content:
+                return Response(f"Could not extract text from {ext}", status=422)
     else:
         data = request.get_json(force=True)
         title = data.get("title", "").strip()

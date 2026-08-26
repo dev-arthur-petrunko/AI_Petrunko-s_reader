@@ -1,4 +1,5 @@
 """Тести для Flask-додатку Petrunko's Reader."""
+import io
 import json
 import os
 import sys
@@ -268,3 +269,57 @@ class TestKnowledgeBase:
         docs = r.get_json()["documents"]
         assert len(docs) >= 1
         assert any("Python" in d["title"] for d in docs)
+
+
+class TestDocumentParser:
+    def test_parse_pdf(self):
+        from app.document_parser import parse_pdf
+        from PyPDF2 import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        buf = io.BytesIO()
+        writer.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        result = parse_pdf(pdf_bytes)
+        assert isinstance(result, str)
+
+    def test_parse_epub(self):
+        from app.document_parser import parse_epub
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("mimetype", "application/epub+zip")
+            zf.writestr("META-INF/container.xml", '''<?xml version="1.0" encoding="UTF-8"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>''')
+            zf.writestr("content.opf", '''<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Test</dc:title></metadata>
+  <manifest><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="ch1"/></spine>
+</package>''')
+            zf.writestr("ch1.xhtml", '''<html><body><p>Hello EPUB world</p></body></html>''')
+
+        result = parse_epub(buf.getvalue())
+        assert "Hello EPUB world" in result
+
+    def test_parse_fb2(self):
+        from app.document_parser import parse_fb2
+
+        fb2 = '''<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+  <body><section><p>Привіт FB2</p></section></body>
+</FictionBook>'''
+
+        result = parse_fb2(fb2.encode("utf-8"))
+        assert "Привіт FB2" in result
+
+    def test_parse_unknown_format(self):
+        from app.document_parser import parse_document
+        text, fmt = parse_document("test.xyz", b"data")
+        assert text == ""
+        assert fmt == ""

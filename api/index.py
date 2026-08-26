@@ -277,7 +277,7 @@ def docs_upload():
     if not KB_OK:
         return Response("Knowledge base not available on serverless", status=501)
     import time, sqlite3
-    allowed = {".txt", ".md", ".markdown", ".text"}
+    allowed = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3"}
     if request.content_type and "multipart" in request.content_type:
         f = request.files.get("file")
         if not f or not f.filename:
@@ -286,8 +286,18 @@ def docs_upload():
         if ext not in allowed:
             return Response(f"Unsupported format: {ext}", status=400)
         title = request.form.get("title", "").strip() or f.filename
-        content = f.read().decode("utf-8", errors="replace")
-        fmt = ext.lstrip(".")
+        raw = f.read()
+
+        if ext in {".txt", ".md", ".markdown", ".text"}:
+            content = raw.decode("utf-8", errors="replace")
+            fmt = ext.lstrip(".")
+        else:
+            import sys
+            sys.path.insert(0, PROJECT_ROOT)
+            from app.document_parser import parse_document
+            content, fmt = parse_document(f.filename, raw)
+            if not content:
+                return Response(f"Could not extract text from {ext}", status=422)
     else:
         data = request.get_json(force=True)
         title = data.get("title", "").strip()
