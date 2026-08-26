@@ -12,7 +12,10 @@ from flask import Flask, request, Response, send_from_directory
 
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder="static", static_url_path="/static")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
+
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
 
 MAX_TEXT_LENGTH: int = 50000
@@ -175,7 +178,7 @@ def health():
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/api/tts/voices", methods=["GET"])
