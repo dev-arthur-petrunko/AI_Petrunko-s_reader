@@ -191,6 +191,24 @@ body.reader-on .theme-toggle:hover{background:var(--a-bl)}
 }
 
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(139,94,60,.15);border-radius:100px}::-webkit-scrollbar-thumb:hover{background:rgba(139,94,60,.3)}
+
+.kb-panel{margin-top:24px;border:1px solid var(--ed-bd);border-radius:var(--rs);background:var(--ed-card);overflow:hidden;transition:border-color .3s}
+.kb-header{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--ed-el);border-bottom:1px solid var(--ed-bd);flex-wrap:wrap}
+.kb-title{font-size:14px;font-weight:600;color:var(--ed-tx);white-space:nowrap}
+.kb-upload-btn{padding:6px 14px;background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.2);border-radius:var(--rx);color:var(--ac2);font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap}
+.kb-upload-btn:hover{background:rgba(124,92,252,.2);border-color:var(--ac1)}
+.kb-list{max-height:280px;overflow-y:auto;padding:8px}
+.kb-empty{padding:24px;text-align:center;color:var(--ed-dm);font-size:13px}
+.kb-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--ed-bd);border-radius:var(--rx);margin-bottom:6px;cursor:pointer;transition:all .15s}
+.kb-item:hover{background:rgba(124,92,252,.06);border-color:var(--ed-bh)}
+.kb-item-info{flex:1;min-width:0}
+.kb-item-title{font-size:13px;font-weight:600;color:var(--ed-tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kb-item-meta{font-size:11px;color:var(--ed-dm);margin-top:2px}
+.kb-item-del{padding:4px 8px;background:none;border:1px solid rgba(244,63,94,.2);border-radius:var(--rx);color:#f43f5e;font-size:11px;cursor:pointer;transition:all .15s;flex-shrink:0;margin-left:8px}
+.kb-item-del:hover{background:rgba(244,63,94,.1)}
+.kb-item-load{padding:4px 10px;background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.2);border-radius:var(--rx);color:var(--ac2);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;flex-shrink:0;margin-left:6px}
+.kb-item-load:hover{background:rgba(124,92,252,.2)}
+.kb-loading{padding:16px;text-align:center;color:var(--ed-dm);font-size:12px}
 </style>
 </head>
 <body>
@@ -226,6 +244,16 @@ body.reader-on .theme-toggle:hover{background:var(--a-bl)}
       <button class="smp-b" onclick="loadSample('python')">Python код</button>
       <button class="smp-b" onclick="loadSample('table')">Таблиця</button>
       <button class="smp-b" onclick="loadSample('article')">Стаття</button>
+    </div>
+  </div>
+  <div class="kb-panel" id="kb-panel">
+    <div class="kb-header">
+      <span class="kb-title">📚 База знань</span>
+      <label class="kb-upload-btn" for="kb-file">+ Завантажити файл (.txt, .md)</label>
+      <input type="file" id="kb-file" accept=".txt,.md,.markdown,.text" style="display:none" onchange="kbUploadFile(this)">
+    </div>
+    <div class="kb-list" id="kb-list">
+      <div class="kb-empty">Завантажте книги або документи для читання</div>
     </div>
   </div>
 </div>
@@ -298,8 +326,7 @@ const SAMPLES={
 markdown:'# Заголовок рівня 1\n\n## Підзаголовок\n\nЦе **жирний текст**, а це *курсив*, а це `код`.\n\n### Список\n\n- Перший елемент\n- Другий елемент\n- Третій елемент\n\n### Цитата\n\n> 💡 Це гарна цитата, яка виділяє важливу думку серед тексту.\n\n### Посилання\n\n[Google](https://google.com) — ось посилання.',
 python:"```python\nimport asyncio\nfrom dataclasses import dataclass\n\n@dataclass\nclass Article:\n    title: str\n    content: str\n    language: str = \"uk\"\n    word_count: int = 0\n\n    def __post_init__(self):\n        self.word_count = len(self.content.split())\n\nclass ChitalaEngine:\n    def __init__(self):\n        self.articles: list[Article] = []\n\n    def add(self, article: Article) -> None:\n        self.articles.append(article)\n\n    def get_stats(self) -> dict:\n        total = sum(a.word_count for a in self.articles)\n        return {\"total_words\": total}\n\nasync def main():\n    engine = ChitalaEngine()\n    engine.add(Article(title=\"СУІБ\", content=\"Текст...\"))\n    print(engine.get_stats())\n\nif __name__ == \"__main__\":\n    asyncio.run(main())\n```",
 table:'# Порівняння стандартів\n\n| Стандарт | Сфера | Рік | Мова |\n|---|---|---|---|\n| ISO 9001:2015 | Якість | 2015 | EN/UK |\n| ISO/IEC 27001:2022 | ІБ | 2022 | EN/UK |\n| ISO 14001:2015 | Екологія | 2015 | EN |\n| NIST CSF | Кібербезпека | 2024 | EN |\n| GDPR | Приватність | 2016 | EU |\n\n### Висновки\n\nСтандарти доповнюють один одного і можуть бути **інтегровані** в єдину систему.',
-article:'# Чому процесний підхід кращий за накази\n\n**Керівник видає наказ → змінюється персонал → знання про накази губиться.**\n\nЦе класична проблема будь-якої організації. Рішення — **процесний підхід**.\n\n## Три рівні документації\n\n| Рівень | Питання | Приклад |\n|---|---|---|\n| Політика | Навіщо? | Політика конфіденційності |\n| Процедура | Хто, коли? | Процедура евакуації |\n| Інструкція | Як? | Інструкція з ПЗ |\n\n## Життєвий цикл\n\n1. **Розробка** — аналіз ризиків\n2. **Погодження** — зі стейкхолдерами\n3. **Затвердження** — керівництвом\n4. **Публікація** — для співробітників\n\n> 💡 Політики мають бути сумісні з потребами бізнесу — баланс між безпекою й ефективністю обов\'язковий.'
-};
+article:'# Як працює Reader\n\nЦей додаток перетворює **Markdown** на красиву сторінку з якісною озвучкою.\n\n## Можливості\n\n- Підтримка 22 мов TTS\n- Клік на абзац \u2014 читати звідси\n- Підсвітка слів під час читання\n\n## Як користуватися\n\n1. Вставте текст у редактор\n2. Натисніть **Читати**\n3. Оберіть мову та голос\n\n> Підтримується: заголовки, списки, таблиці, код, цитати, посилання.'};
 
 marked.setOptions({breaks:true,gfm:true});
 
@@ -669,8 +696,72 @@ speechSynthesis.getVoices();
 function init(){
   const l=detectLang(editor.value||'');
   populateVoices(l.c);
+  kbLoadList();
 }
 init();
+
+// ── Knowledge Base ──
+
+async function kbLoadList(){
+  const list=document.getElementById('kb-list');
+  list.innerHTML='<div class="kb-loading">Завантаження...</div>';
+  try{
+    const r=await fetch('/api/docs');
+    if(!r.ok)throw new Error('Failed');
+    const data=await r.json();
+    const docs=data.documents||[];
+    if(!docs.length){
+      list.innerHTML='<div class="kb-empty">Завантажте книги або документи для читання</div>';
+      return;
+    }
+    list.innerHTML='';
+    docs.forEach(d=>{
+      const item=document.createElement('div');
+      item.className='kb-item';
+      const date=new Date(d.created_at*1000).toLocaleDateString('uk-UA');
+      item.innerHTML='<div class="kb-item-info"><div class="kb-item-title">'+escHtml(d.title)+'</div><div class="kb-item-meta">'+d.word_count+' слів · '+date+'</div></div><button class="kb-item-load" data-id="'+d.id+'">Читати</button><button class="kb-item-del" data-id="'+d.id+'">✕</button>';
+      item.querySelector('.kb-item-load').addEventListener('click',e=>{e.stopPropagation();kbLoadDoc(d.id)});
+      item.querySelector('.kb-item-del').addEventListener('click',e=>{e.stopPropagation();kbDeleteDoc(d.id)});
+      list.appendChild(item);
+    });
+  }catch(e){
+    list.innerHTML='<div class="kb-empty">База знань недоступна</div>';
+  }
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+async function kbUploadFile(input){
+  const file=input.files[0];
+  if(!file)return;
+  const fd=new FormData();
+  fd.append('file',file);
+  try{
+    const r=await fetch('/api/docs',{method:'POST',body:fd});
+    if(!r.ok){const t=await r.text();alert('Помилка: '+t);return}
+    kbLoadList();
+  }catch(e){alert('Помилка завантаження')}
+  input.value='';
+}
+
+async function kbLoadDoc(id){
+  try{
+    const r=await fetch('/api/docs/'+id);
+    if(!r.ok)return;
+    const doc=await r.json();
+    editor.value=doc.content;
+    editor.dispatchEvent(new Event('input'));
+    window.scrollTo({top:0,behavior:'smooth'});
+  }catch(e){}
+}
+
+async function kbDeleteDoc(id){
+  if(!confirm('Видалити цей документ?'))return;
+  try{
+    await fetch('/api/docs/'+id,{method:'DELETE'});
+    kbLoadList();
+  }catch(e){}
+}
 </script>
 </body>
 </html>

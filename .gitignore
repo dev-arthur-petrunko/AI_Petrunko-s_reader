@@ -8,3 +8,4 @@ dist/
 build/
 piper_voices/
 tts_cache/
+*.db

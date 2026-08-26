@@ -4,7 +4,7 @@ import os
 import tempfile
 
 BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MAX_TEXT_LENGTH: int = 50000
+MAX_TEXT_LENGTH: int = 10000
 MAX_CONTENT_LENGTH: int = 2 * 1024 * 1024  # 2 MB
 RATE_LIMIT_DEFAULT: str = "30/minute"
 CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")

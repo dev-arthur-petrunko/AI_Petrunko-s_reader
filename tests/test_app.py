@@ -217,3 +217,54 @@ class TestPiperVoices:
         uk_voices = data["voices"]["uk-UA"]
         piper_voices = [v for v in uk_voices if v.startswith("piper:")]
         assert len(piper_voices) == 4
+
+
+class TestKnowledgeBase:
+    def test_list_empty(self, client):
+        r = client.get("/api/docs")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert "documents" in data
+
+    def test_upload_json(self, client):
+        r = client.post("/api/docs", json={"title": "Test", "content": "Hello world"})
+        assert r.status_code == 201
+        data = r.get_json()
+        assert data["title"] == "Test"
+        assert data["word_count"] == 2
+
+    def test_upload_empty(self, client):
+        r = client.post("/api/docs", json={"title": "", "content": ""})
+        assert r.status_code == 400
+
+    def test_get_document(self, client):
+        r = client.post("/api/docs", json={"title": "Doc1", "content": "Some text here"})
+        doc_id = r.get_json()["id"]
+        r2 = client.get(f"/api/docs/{doc_id}")
+        assert r2.status_code == 200
+        assert r2.get_json()["content"] == "Some text here"
+
+    def test_get_nonexistent(self, client):
+        r = client.get("/api/docs/99999")
+        assert r.status_code == 404
+
+    def test_delete_document(self, client):
+        r = client.post("/api/docs", json={"title": "Delete me", "content": "trash"})
+        doc_id = r.get_json()["id"]
+        r2 = client.delete(f"/api/docs/{doc_id}")
+        assert r2.status_code == 200
+        assert r2.get_json()["deleted"] is True
+        r3 = client.get(f"/api/docs/{doc_id}")
+        assert r3.status_code == 404
+
+    def test_delete_nonexistent(self, client):
+        r = client.delete("/api/docs/99999")
+        assert r.status_code == 404
+
+    def test_search(self, client):
+        client.post("/api/docs", json={"title": "Python guide", "content": "Learn Python"})
+        client.post("/api/docs", json={"title": "JS basics", "content": "Learn JavaScript"})
+        r = client.get("/api/docs?q=Python")
+        docs = r.get_json()["documents"]
+        assert len(docs) >= 1
+        assert any("Python" in d["title"] for d in docs)

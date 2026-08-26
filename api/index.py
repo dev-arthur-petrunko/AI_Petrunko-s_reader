@@ -18,7 +18,7 @@ STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
 
-MAX_TEXT_LENGTH: int = 50000
+MAX_TEXT_LENGTH: int = 10000
 CACHE_DIR: str = os.path.join(tempfile.gettempdir(), "tts_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -166,7 +166,7 @@ async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> 
 @app.after_request
 def add_cors_headers(response: Response) -> Response:
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
@@ -235,3 +235,108 @@ def tts_generate() -> Response:
     except Exception as e:
         logger.error("TTS error: %s", e, exc_info=True)
         return Response("TTS generation failed", status=500)
+
+
+# ── Knowledge Base (works on local/Render, disabled on Vercel serverless) ──
+
+DB_PATH = os.path.join(PROJECT_ROOT, "knowledge_base.db")
+
+def _kb_available():
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("""CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL, content TEXT NOT NULL,
+            format TEXT NOT NULL DEFAULT 'txt', word_count INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL, last_accessed REAL NOT NULL
+        )""")
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+KB_OK = _kb_available()
+
+
+@app.route("/api/docs", methods=["GET"])
+def docs_list():
+    if not KB_OK:
+        return Response("Knowledge base not available on serverless", status=501)
+    import time, sqlite3
+    q = request.args.get("q", "").strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    if q:
+        pat = f"%{q}%"
+        rows = conn.execute("SELECT id, title, word_count, created_at FROM documents WHERE title LIKE ? OR content LIKE ? ORDER BY last_accessed DESC", (pat, pat)).fetchall()
+    else:
+        rows = conn.execute("SELECT id, title, word_count, created_at FROM documents ORDER BY last_accessed DESC").fetchall()
+    conn.close()
+    return {"documents": [dict(r) for r in rows]}
+
+
+@app.route("/api/docs", methods=["POST"])
+def docs_upload():
+    if not KB_OK:
+        return Response("Knowledge base not available on serverless", status=501)
+    import time, sqlite3, os as _os
+    allowed = {".txt", ".md", ".markdown", ".text"}
+    if request.content_type and "multipart" in request.content_type:
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return Response("No file", status=400)
+        ext = _os.path.splitext(f.filename)[1].lower()
+        if ext not in allowed:
+            return Response(f"Unsupported format: {ext}", status=400)
+        title = request.form.get("title", "").strip() or f.filename
+        content = f.read().decode("utf-8", errors="replace")
+        fmt = ext.lstrip(".")
+    else:
+        data = request.get_json(force=True)
+        title = data.get("title", "").strip()
+        content = data.get("content", "").strip()
+        fmt = data.get("format", "txt")
+        if not title or not content:
+            return Response("title and content required", status=400)
+    if not content:
+        return Response("Empty content", status=400)
+    if len(content) > 500_000:
+        return Response("Document too large (max 500k chars)", status=413)
+    now = time.time()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute("INSERT INTO documents (title,content,format,word_count,created_at,last_accessed) VALUES (?,?,?,?,?,?)",
+                       (title, content, fmt, len(content.split()), now, now))
+    doc_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": doc_id, "title": title, "word_count": len(content.split())}, 201
+
+
+@app.route("/api/docs/<int:doc_id>", methods=["GET"])
+def docs_get(doc_id):
+    if not KB_OK:
+        return Response("Knowledge base not available on serverless", status=501)
+    import time, sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    if row:
+        conn.execute("UPDATE documents SET last_accessed = ? WHERE id = ?", (time.time(), doc_id))
+        conn.commit()
+    conn.close()
+    return dict(row) if row else (Response("Not found", status=404))
+
+
+@app.route("/api/docs/<int:doc_id>", methods=["DELETE"])
+def docs_delete(doc_id):
+    if not KB_OK:
+        return Response("Knowledge base not available on serverless", status=501)
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return {"deleted": deleted} if deleted else (Response("Not found", status=404))
