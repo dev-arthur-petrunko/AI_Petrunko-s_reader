@@ -127,6 +127,7 @@ body.reader-on .theme-toggle:hover{background:var(--a-bl)}
 .art [data-p]{cursor:pointer;border-left:3px solid transparent;padding-left:10px;margin-left:-13px;transition:border-color .15s,background .15s;border-radius:0 4px 4px 0}
 .art [data-p]:hover{border-left-color:var(--a-acl);background:rgba(139,94,60,.03)}
 .art [data-p].reading{border-left-color:var(--ac1);background:rgba(124,92,252,.05)}
+.art .w-hl{background:rgba(124,92,252,.25);border-radius:3px;transition:background .15s}
 
 .tts-bar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,15,20,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(255,255,255,.06);padding:12px 16px;display:none;align-items:center;justify-content:center;gap:10px;z-index:200;flex-wrap:wrap}
 [data-theme="light"] .tts-bar{background:rgba(30,28,42,.95)}
@@ -305,6 +306,7 @@ marked.setOptions({breaks:true,gfm:true});
 const editor=document.getElementById('editor');
 const artEl=document.getElementById('article');
 let ttsChunks=[];
+let chunkWordCounts=[];
 
 function toggleTheme(){
   const cur=document.documentElement.getAttribute('data-theme');
@@ -348,7 +350,9 @@ function cleanTTS(text){
 
 function buildChunks(){
   ttsChunks=[];
+  chunkWordCounts=[];
   const els=artEl.querySelectorAll('p,h1,h2,h3,h4,li');
+  let wordOffset=0;
   els.forEach((el,i)=>{
     const raw=el.textContent.trim();
     if(!raw)return;
@@ -356,11 +360,64 @@ function buildChunks(){
     if(!cleaned||cleaned.length<3)return;
     el.setAttribute('data-p',ttsChunks.length);
     ttsChunks.push(cleaned);
+    const words=cleaned.split(/\s+/).filter(w=>w);
+    chunkWordCounts.push({offset:wordOffset,count:words.length});
+    wordOffset+=words.length;
+    el.innerHTML='';
+    words.forEach((w,wi)=>{
+      const span=document.createElement('span');
+      span.className='w';
+      span.setAttribute('data-w',wordOffset-words.length+wi);
+      span.textContent=w+' ';
+      el.appendChild(span);
+    });
     el.addEventListener('click',()=>{
       if(playing&&idx===parseInt(el.getAttribute('data-p'))){ttsStop();return}
       startFrom(parseInt(el.getAttribute('data-p')));
     });
   });
+}
+
+let currentWordEl=null;
+function highlightWord(globalIdx){
+  if(currentWordEl)currentWordEl.classList.remove('w-hl');
+  currentWordEl=null;
+  if(globalIdx<0)return;
+  const el=artEl.querySelector('[data-w="'+globalIdx+'"]');
+  if(el){el.classList.add('w-hl');currentWordEl=el}
+}
+
+function getWordForTime(el,duration){
+  if(!el)return 0;
+  const cur=el.currentTime||0;
+  const words=el.closest('[data-p]')?
+    chunkWordCounts.find(c=>c.offset<=parseInt(el.getAttribute('data-p'))*1000):
+    null;
+  return cur;
+}
+
+let wordHighlightRAF=null;
+function startWordHighlight(audioEl,chunkIdx){
+  cancelAnimationFrame(wordHighlightRAF);
+  const info=chunkWordCounts[chunkIdx];
+  if(!info)return;
+  const totalWords=info.count;
+  const offset=info.offset;
+  function tick(){
+    if(!playing)return;
+    const dur=audioEl.duration||1;
+    const cur=audioEl.currentTime||0;
+    const frac=Math.min(cur/dur,1);
+    const wordIdx=Math.min(Math.floor(frac*totalWords),totalWords-1);
+    highlightWord(offset+wordIdx);
+    wordHighlightRAF=requestAnimationFrame(tick);
+  }
+  wordHighlightRAF=requestAnimationFrame(tick);
+}
+
+function stopWordHighlight(){
+  cancelAnimationFrame(wordHighlightRAF);
+  highlightWord(-1);
 }
 
 function highlightChunk(i){
@@ -470,7 +527,12 @@ function populateVoices(locale){
 }
 
 function saveVoicePref(){if(ttsVoice.value)localStorage.setItem('chitala_voice',ttsVoice.value)}
-ttsVoice.addEventListener('change',saveVoicePref);
+ttsVoice.addEventListener('change',()=>{
+  saveVoicePref();
+  updateEngineBadge();
+  if(playing){ttsStop()}
+});
+ttsSpeed.addEventListener('change',()=>{if(playing){ttsStop()}});
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='';
 
@@ -519,9 +581,10 @@ async function playEdge(){
     const url=await edgeSpeak(ttsChunks[idx],curVoice,curRate);
     if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=url;
     ttsAudioEl.src=url;
-    ttsAudioEl.onended=()=>{idx++;updateP();playEdge()};
-    ttsAudioEl.onerror=()=>{idx++;updateP();playEdge()};
+    ttsAudioEl.onended=()=>{stopWordHighlight();idx++;updateP();playEdge()};
+    ttsAudioEl.onerror=()=>{stopWordHighlight();idx++;updateP();playEdge()};
     await ttsAudioEl.play();playing=true;
+    startWordHighlight(ttsAudioEl,idx);
   }catch(e){
     console.error(e);mode='browser';
     document.getElementById('tts-eng').textContent='browser';
@@ -540,8 +603,19 @@ function readBr(){
   const vs=speechSynthesis.getVoices();
   const m=vs.find(v=>v.lang.startsWith(ttsLang.value));
   if(m)u.voice=m;
-  u.onend=()=>{idx++;updateP();readBr()};
-  u.onerror=e=>{if(e.error!=='canceled'&&e.error!=='interrupted'){idx++;updateP();readBr()}};
+  const info=chunkWordCounts[idx];
+  if(info){
+    u.onboundary=e=>{
+      if(e.name==='word'){
+        const charIdx=e.charIndex;
+        const textBefore=ttsChunks[idx].substring(0,charIdx);
+        const wordNum=textBefore.split(/\s+/).filter(w=>w).length;
+        highlightWord(info.offset+wordNum);
+      }
+    };
+  }
+  u.onend=()=>{stopWordHighlight();idx++;updateP();readBr()};
+  u.onerror=e=>{if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();readBr()}};
   speechSynthesis.speak(u);playing=true;
   document.getElementById('tts-st').textContent='🔊';
 }
@@ -549,11 +623,24 @@ function readBr(){
 function ttsToggle(){
   if(playing){
     if(mode==='edge'){
-      if(!ttsAudioEl.paused){ttsAudioEl.pause();document.getElementById('tts-btn').textContent='▶ Далі';document.getElementById('tts-st').textContent='⏸'}
-      else{ttsAudioEl.play();document.getElementById('tts-btn').textContent='⏸ Пауза'}
+      if(!ttsAudioEl.paused){
+        ttsAudioEl.pause();
+        document.getElementById('tts-btn').textContent='▶ Далі';
+        document.getElementById('tts-st').textContent='⏸';
+        cancelAnimationFrame(wordHighlightRAF);
+      }else{
+        ttsAudioEl.play();
+        document.getElementById('tts-btn').textContent='⏸ Пауза';
+        startWordHighlight(ttsAudioEl,idx);
+      }
     }else{
-      if(speechSynthesis.speaking&&!speechSynthesis.paused){speechSynthesis.pause();document.getElementById('tts-btn').textContent='▶ Далі'}
-      else{speechSynthesis.resume();document.getElementById('tts-btn').textContent='⏸ Пауза'}
+      if(speechSynthesis.speaking&&!speechSynthesis.paused){
+        speechSynthesis.pause();
+        document.getElementById('tts-btn').textContent='▶ Далі';
+      }else{
+        speechSynthesis.resume();
+        document.getElementById('tts-btn').textContent='⏸ Пауза';
+      }
     }
   }else{startFrom(0)}
 }
@@ -563,6 +650,7 @@ function ttsStop(){
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null}
   playing=false;idx=0;
+  stopWordHighlight();
   highlightChunk(-1);
   document.getElementById('tts-btn').textContent='▶ Читати';
   document.getElementById('tts-st').textContent='0%';
