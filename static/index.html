@@ -54,6 +54,7 @@ body.reader-on::before{display:none}
 
 .theme-toggle{position:fixed;top:16px;right:16px;z-index:100;width:44px;height:44px;border-radius:50%;border:1px solid var(--ed-bd);background:var(--ed-el);color:var(--ed-tx);font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .3s;box-shadow:0 2px 12px rgba(0,0,0,.2)}
 .theme-toggle:hover{background:var(--ed-bh);transform:rotate(30deg)}
+.lang-toggle{position:fixed;top:16px;right:68px;z-index:100;height:44px;padding:0 12px;border-radius:var(--rx);border:1px solid var(--ed-bd);background:var(--ed-sel);color:var(--ed-sel-tx);font-size:12px;font-family:var(--fb);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b89a0'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:26px;transition:all .3s}
 
 #input-screen{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:48px 24px 60px}
 .hero{text-align:center;margin-bottom:48px}
@@ -89,6 +90,7 @@ body.reader-on::before{display:none}
 body.reader-on{background:var(--a-bg);color:var(--a-tx);transition:background .3s,color .3s}
 body.reader-on .theme-toggle{border-color:var(--a-bd);background:var(--a-card);color:var(--a-tx)}
 body.reader-on .theme-toggle:hover{background:var(--a-bl)}
+body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);color:var(--a-tx)}
 
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;flex-wrap:wrap;gap:12px}
 .btn-back{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:rgba(139,94,60,.08);border:1px solid rgba(139,94,60,.15);border-radius:var(--rs);color:var(--a-ac);font-size:14px;cursor:pointer;font-family:var(--fb);font-weight:500;transition:all .2s}
@@ -179,6 +181,7 @@ body.reader-on .theme-toggle:hover{background:var(--a-bl)}
   .art th,.art td{padding:10px 12px}
   .art pre code{font-size:12px;padding:14px}
   .theme-toggle{top:10px;right:10px;width:36px;height:36px;font-size:16px}
+  .lang-toggle{top:10px;right:54px;height:36px;font-size:10px;padding:0 10px;padding-right:22px}
 
   .tts-bar{padding:8px 8px;gap:4px}
   .tts-bar .tc{gap:4px}
@@ -214,6 +217,7 @@ body.reader-on .theme-toggle:hover{background:var(--a-bl)}
 <body>
 
 <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Темна / Світла тема">☀️</button>
+<select class="lang-toggle" id="lang-toggle" title="Мова озвучки" onchange="onGlobalLangChange(this.value)"></select>
 
 <div id="input-screen">
   <div class="hero">
@@ -467,6 +471,7 @@ function openReader(){
   const l=detectLang(t);
   document.getElementById('det-lang').textContent=l.f+' '+l.n;
   document.getElementById('tts-lang').value=l.c;
+  document.getElementById('lang-toggle').value=l.c;
   populateVoices(l.c);
   document.getElementById('word-cnt').textContent=t.split(/\s+/).filter(w=>w).length+' слів';
   localStorage.setItem('chitala_text',t);
@@ -492,7 +497,7 @@ const ttsAudioEl=document.getElementById('tts-audio');
 const ttsSpeed=document.getElementById('tts-speed');
 
 LANGS.forEach(l=>{const o=document.createElement('option');o.value=l.c;o.textContent=l.f+' '+l.n;ttsLang.appendChild(o)});
-ttsLang.addEventListener('change',()=>{populateVoices(ttsLang.value);saveVoicePref()});
+ttsLang.addEventListener('change',()=>{populateVoices(ttsLang.value);document.getElementById('lang-toggle').value=ttsLang.value;saveVoicePref()});
 
 const allVoices={
   "uk-UA":[{"name":"uk-UA-OstapNeural","gender":"Male"},{"name":"uk-UA-PolinaNeural","gender":"Female"}],
@@ -557,9 +562,9 @@ function saveVoicePref(){if(ttsVoice.value)localStorage.setItem('chitala_voice',
 ttsVoice.addEventListener('change',()=>{
   saveVoicePref();
   updateEngineBadge();
-  if(playing){ttsStop()}
+  if(playing){const pos=idx;ttsStop();startFrom(pos)}
 });
-ttsSpeed.addEventListener('change',()=>{if(playing){ttsStop()}});
+ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();startFrom(pos)}});
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='';
 
@@ -626,7 +631,10 @@ function readBr(){
   highlightChunk(idx);
   document.getElementById('tts-btn').textContent='⏸ Пауза';
   const u=new SpeechSynthesisUtterance(ttsChunks[idx]);
-  u.lang=ttsLang.value;u.rate=1;u.pitch=1;
+  u.lang=ttsLang.value;
+  const rateMatch=curRate.match(/([+-]?\d+)/);
+  u.rate=rateMatch?1+parseInt(rateMatch[1])/100:1;
+  u.pitch=1;
   const vs=speechSynthesis.getVoices();
   const m=vs.find(v=>v.lang.startsWith(ttsLang.value));
   if(m)u.voice=m;
@@ -696,7 +704,26 @@ speechSynthesis.getVoices();
 function init(){
   const l=detectLang(editor.value||'');
   populateVoices(l.c);
+  initLangToggle(l.c);
   kbLoadList();
+}
+
+function initLangToggle(currentLang){
+  const sel=document.getElementById('lang-toggle');
+  sel.innerHTML='';
+  LANGS.forEach(l=>{
+    const o=document.createElement('option');
+    o.value=l.c;o.textContent=l.f+' '+l.n;
+    sel.appendChild(o);
+  });
+  sel.value=currentLang;
+}
+
+function onGlobalLangChange(lang){
+  populateVoices(lang);
+  const ttsLangEl=document.getElementById('tts-lang');
+  ttsLangEl.value=lang;
+  saveVoicePref();
 }
 init();
 

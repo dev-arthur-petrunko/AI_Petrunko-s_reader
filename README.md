@@ -53,6 +53,13 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Models must be downloaded once before first run (see Setup below)
 - Returns 503 when models are missing (not 500)
 
+### Knowledge Base
+- Upload `.txt` and `.md` files to build a personal library
+- Click to load any document directly into the editor
+- Search documents by title and content
+- Auto-cleanup: documents not accessed for 30 days are removed
+- SQLite storage (works locally and on Render; 501 on Vercel serverless)
+
 ### Supported Languages
 22 languages: Ukrainian, Russian, Polish, English (US/UK), German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech, Turkish, Arabic, Hindi, Hungarian, Romanian, Swedish, Norwegian, Finnish, Dutch.
 
@@ -62,12 +69,17 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Light mode: light editor + warm cream reading screen
 - Preference saved to localStorage
 
+### Language Selector
+- Quick language picker next to the theme toggle (top-right)
+- Switches TTS language instantly
+- Syncs with the language dropdown in the TTS bar
+
 ## Security
 
 - **Static file isolation**: all public files in `static/` directory, source code not accessible via HTTP
 - **XSS protection**: DOMPurify sanitizes rendered Markdown HTML
 - **Voice validation**: only known voice names accepted by API
-- **Text length limit**: max 50,000 characters per TTS request
+- **Text length limit**: max 10,000 characters per TTS request
 - **MAX_CONTENT_LENGTH**: 2 MB max request size
 - **Path traversal protection**: static file routes use `send_from_directory` with validated paths
 - **Rate limiting**: flask-limiter (30 TTS requests/minute, 60 general/minute)
@@ -86,16 +98,19 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 ├── app/                   # Flask application package
 │   ├── __init__.py        # App factory (create_app)
 │   ├── config.py          # Constants: voices, limits, paths
-│   ├── routes.py          # API routes + health check + static serving
+│   ├── database.py        # Knowledge Base — SQLite storage + auto-cleanup
+│   ├── routes.py          # API routes + KB endpoints + health check + static serving
 │   └── tts.py             # edge-tts + Piper wrapper + markdown stripping + caching
 ├── api/
 │   └── index.py           # Vercel serverless entry (standalone)
 ├── static/
-│   └── index.html         # Frontend: editor + reader + TTS controls
+│   └── index.html         # Frontend: editor + reader + TTS + KB panel
 ├── piper_engine.py        # Piper TTS local engine (Ukrainian voices)
 ├── piper_voices/          # Downloaded .onnx models (gitignored)
+├── tts_cache/             # Cached audio files (gitignored)
+├── knowledge_base.db      # KB SQLite database (gitignored)
 ├── tests/
-│   └── test_app.py        # pytest tests (28 tests)
+│   └── test_app.py        # pytest tests (36 tests)
 ├── .github/
 │   └── workflows/
 │       └── ci.yml         # GitHub Actions CI (pytest on push/PR)
@@ -151,9 +166,9 @@ pytest tests/ -v
 
 ## Tech Stack
 
-- **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts 1.2, flask-limiter 3.12
+- **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts >=1.4.2, flask-limiter 3.12
 - **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
 - **Hosting**: Vercel (serverless) or local Flask/gunicorn
 - **Testing**: pytest, GitHub Actions CI
-- **Data**: localStorage only (no database)
+- **Database**: SQLite (Knowledge Base, auto-cleanup after 30 days)
