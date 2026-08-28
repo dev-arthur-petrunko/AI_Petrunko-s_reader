@@ -127,6 +127,7 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
 .art img{max-width:100%;border-radius:var(--rs);margin:20px 0;box-shadow:var(--a-img-shadow)}
 
 .art [data-p]{cursor:pointer;border-left:3px solid transparent;padding-left:10px;margin-left:-13px;transition:border-color .15s,background .15s;border-radius:0 4px 4px 0}
+.art td[data-p],.art th[data-p]{margin-left:0;padding-left:4px;border-left:2px solid transparent;border-radius:3px}
 .art [data-p]:hover{border-left-color:var(--a-acl);background:rgba(139,94,60,.03)}
 .art [data-p].reading{border-left-color:var(--ac1);background:rgba(124,92,252,.05)}
 .art .w-hl{background:rgba(124,92,252,.25);border-radius:3px;transition:background .15s}
@@ -382,7 +383,7 @@ function cleanTTS(text){
 function buildChunks(){
   ttsChunks=[];
   chunkWordCounts=[];
-  const els=artEl.querySelectorAll('p,h1,h2,h3,h4,li');
+  const els=artEl.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th');
   let wordOffset=0;
   els.forEach((el,i)=>{
     const raw=el.textContent.trim();
