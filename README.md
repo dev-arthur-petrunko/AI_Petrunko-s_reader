@@ -54,7 +54,10 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Returns 503 when models are missing (not 500)
 
 ### Knowledge Base
-- Upload `.txt` and `.md` files to build a personal library
+- Upload documents in many formats to build a personal library:
+  - Plain text & Markdown: `.txt`, `.md`, `.markdown`, `.text`
+  - eBooks: `.pdf`, `.epub`, `.fb2`, `.mobi`, `.azw3`
+- Binary formats are automatically converted to text (PDF page extraction, EPUB chapter order, FB2 XML parsing, MOBI/AZW3 unpacking)
 - Click to load any document directly into the editor
 - Search documents by title and content
 - Auto-cleanup: documents not accessed for 30 days are removed
@@ -99,6 +102,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 │   ├── __init__.py        # App factory (create_app)
 │   ├── config.py          # Constants: voices, limits, paths
 │   ├── database.py        # Knowledge Base — SQLite storage + auto-cleanup
+│   ├── document_parser.py # PDF/EPUB/FB2/MOBI/AZW3 → text converters
 │   ├── routes.py          # API routes + KB endpoints + health check + static serving
 │   └── tts.py             # edge-tts + Piper wrapper + markdown stripping + caching
 ├── api/
@@ -110,7 +114,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 ├── tts_cache/             # Cached audio files (gitignored)
 ├── knowledge_base.db      # KB SQLite database (gitignored)
 ├── tests/
-│   └── test_app.py        # pytest tests (36 tests)
+│   └── test_app.py        # pytest tests (40 tests)
 ├── .github/
 │   └── workflows/
 │       └── ci.yml         # GitHub Actions CI (pytest on push/PR)
@@ -167,6 +171,7 @@ pytest tests/ -v
 ## Tech Stack
 
 - **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts >=1.4.2, flask-limiter 3.12
+- **Document parsing**: PyPDF2 (PDF), ebooklib + lxml (EPUB), lxml (FB2), mobi (MOBI/AZW3)
 - **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
 - **Hosting**: Vercel (serverless) or local Flask/gunicorn
