@@ -41,21 +41,49 @@ def strip_markdown_for_tts(text: str) -> str:
     return text.strip()
 
 
-def cache_key(text: str, voice: str, rate: str) -> str:
-    return hashlib.sha256(f"{text}|{voice}|{rate}".encode()).hexdigest()
+def cache_key(text: str, voice: str, rate: str, pitch: str = "+0Hz") -> str:
+    return hashlib.sha256(f"{text}|{voice}|{rate}|{pitch}".encode()).hexdigest()
 
 
-def get_cached_path(text: str, voice: str, rate: str) -> Optional[str]:
+def get_cached_path(text: str, voice: str, rate: str, pitch: str = "+0Hz") -> Optional[str]:
     ext = ".wav" if voice.startswith("piper:") else ".mp3"
-    path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate)}{ext}")
+    path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate, pitch)}{ext}")
     return path if os.path.exists(path) else None
 
 
-def save_to_cache(audio_bytes: bytes, text: str, voice: str, rate: str) -> str:
+MAX_CACHE_FILES: int = 800
+
+
+def _prune_cache_if_large(target: int = 600) -> None:
+    """Видаляє найстаріші файли, якщо кеш розрісся."""
+    try:
+        entries = [
+            (os.path.getmtime(os.path.join(CACHE_DIR, name)), name)
+            for name in os.listdir(CACHE_DIR)
+            if os.path.isfile(os.path.join(CACHE_DIR, name))
+        ]
+    except OSError:
+        return
+    if len(entries) <= MAX_CACHE_FILES:
+        return
+    entries.sort()
+    removed = 0
+    for _mtime, name in entries[: len(entries) - target]:
+        try:
+            os.unlink(os.path.join(CACHE_DIR, name))
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        logger.info("Cache prune: removed %d oldest files", removed)
+
+
+def save_to_cache(audio_bytes: bytes, text: str, voice: str, rate: str, pitch: str = "+0Hz") -> str:
     ext = ".wav" if voice.startswith("piper:") else ".mp3"
-    path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate)}{ext}")
+    path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate, pitch)}{ext}")
     with open(path, "wb") as f:
         f.write(audio_bytes)
+    _prune_cache_if_large()
     return path
 
 
@@ -96,7 +124,7 @@ async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> 
 def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[bytes, str]:
     cleaned = strip_markdown_for_tts(text)
 
-    cached = get_cached_path(cleaned, voice, rate)
+    cached = get_cached_path(cleaned, voice, rate, pitch)
     if cached:
         with open(cached, "rb") as f:
             mime = "audio/wav" if cached.endswith(".wav") else "audio/mpeg"
@@ -113,7 +141,7 @@ def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[b
         except Exception as e:
             raise RuntimeError(f"Piper TTS error: {e}") from e
 
-        save_to_cache(audio_bytes, cleaned, voice, rate)
+        save_to_cache(audio_bytes, cleaned, voice, rate, pitch)
         return audio_bytes, "audio/wav"
 
     try:
@@ -128,5 +156,5 @@ def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[b
         if os.path.exists(audio_path):
             os.unlink(audio_path)
 
-    save_to_cache(audio_bytes, cleaned, voice, rate)
+    save_to_cache(audio_bytes, cleaned, voice, rate, pitch)
     return audio_bytes, "audio/mpeg"

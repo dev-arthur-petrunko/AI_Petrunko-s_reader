@@ -18,6 +18,10 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Article rendered in a card with subtle shadows
 - Word count and auto-detected language shown in header
 - Back button to return to editor
+- Reader settings: font size (A−/A+), line spacing, column width — saved to localStorage
+- Table of contents dropdown (headings) + previous/next paragraph buttons in the TTS bar
+- Keyboard shortcuts: `Space` — play/pause, `←`/`→` — previous/next paragraph, `Esc` — stop
+- Export the whole text as MP3 (⬇ MP3) — audio concatenated chunk by chunk
 
 ### Responsive Design
 - Mobile-first responsive layout: adapts from 320px phones to desktop
@@ -41,8 +45,10 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Play / Pause / Resume / Stop controls
 - Markdown syntax cleaned before TTS (no reading `#`, `|`, backticks, links, images)
 - Fallback to browser `speechSynthesis` API when backend unavailable
-- Audio caching by SHA-256 hash of (text + voice + rate)
-- Auto-cleanup of cached files older than 7 days
+- Audio caching by SHA-256 hash of (text + voice + rate + pitch)
+- Offline audio cache in browser Cache Storage (`preader_tts`) — repeat playback works without a network
+- Auto-cleanup of cached files older than 7 days + cache size cap (800 files)
+- Word highlighting paced by word length and speed, so longer words are highlighted proportionally longer
 
 ### Piper TTS (Local Ukrainian Voices)
 - **Piper** engine — fully local, free, no API keys, no external server calls
@@ -60,11 +66,16 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Binary formats are automatically converted to text (PDF page extraction, EPUB chapter order, FB2 XML parsing, MOBI/AZW3 unpacking)
 - Click to load any document directly into the editor
 - Search documents by title and content
+- Drag & drop file upload with a progress bar
 - Auto-cleanup: documents not accessed for 30 days are removed
 - SQLite storage (works locally and on Render; 501 on Vercel serverless)
 
+### PWA (Progressive Web App)
+- `manifest.json` + service worker cache the app shell for offline use
+- Installable and launchable as a standalone app
+
 ### Supported Languages
-22 languages: Ukrainian, Russian, Polish, English (US/UK), German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech, Turkish, Arabic, Hindi, Hungarian, Romanian, Swedish, Norwegian, Finnish, Dutch.
+23 languages: Ukrainian, Russian, Polish, English (US/UK), German, French, Spanish, Portuguese, Italian, Japanese, Chinese, Korean, Czech, Turkish, Arabic, Hindi, Hungarian, Romanian, Swedish, Norwegian, Finnish, Dutch.
 
 ### Theme Toggle
 - Button in top-right corner (sun/moon icon) toggles between dark and light modes
@@ -85,8 +96,8 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - **Text length limit**: max 10,000 characters per TTS request
 - **MAX_CONTENT_LENGTH**: 2 MB max request size
 - **Path traversal protection**: static file routes use `send_from_directory` with validated paths
-- **Rate limiting**: flask-limiter (30 TTS requests/minute, 60 general/minute)
-- **CORS**: controlled Access-Control headers on API routes
+- **Rate limiting**: flask-limiter (30 TTS requests/minute, 60 general/minute) — on both Flask and Vercel serverless
+- **Same-origin only**: wildcard CORS removed, API is only reachable from the app's own origin
 - **Temp file cleanup**: guaranteed via finally blocks
 - **Error logging**: all errors logged server-side, generic messages returned to client
 
@@ -108,13 +119,16 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 ├── api/
 │   └── index.py           # Vercel serverless entry (standalone)
 ├── static/
-│   └── index.html         # Frontend: editor + reader + TTS + KB panel
+│   ├── index.html         # Frontend: editor + reader + TTS + KB panel
+│   ├── manifest.json      # PWA manifest
+│   ├── sw.js              # Service worker (offline app shell)
+│   └── icon.svg           # PWA / favicon icon
 ├── piper_engine.py        # Piper TTS local engine (Ukrainian voices)
 ├── piper_voices/          # Downloaded .onnx models (gitignored)
 ├── tts_cache/             # Cached audio files (gitignored)
 ├── knowledge_base.db      # KB SQLite database (gitignored)
 ├── tests/
-│   └── test_app.py        # pytest tests (40 tests)
+│   └── test_app.py        # pytest tests (42 tests)
 ├── .github/
 │   └── workflows/
 │       └── ci.yml         # GitHub Actions CI (pytest on push/PR)
@@ -172,7 +186,7 @@ pytest tests/ -v
 
 - **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts >=1.4.2, flask-limiter 3.12
 - **Document parsing**: PyPDF2 (PDF), ebooklib + lxml (EPUB), lxml (FB2), mobi (MOBI/AZW3)
-- **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1
+- **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1, PWA (manifest + service worker)
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
 - **Hosting**: Vercel (serverless) or local Flask/gunicorn
 - **Testing**: pytest, GitHub Actions CI

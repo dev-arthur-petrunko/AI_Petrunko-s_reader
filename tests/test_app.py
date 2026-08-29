@@ -234,6 +234,22 @@ class TestKnowledgeBase:
         assert data["title"] == "Test"
         assert data["word_count"] == 2
 
+    def test_upload_corrupt_pdf_returns_422(self, client):
+        r = client.post(
+            "/api/docs",
+            data={"file": (io.BytesIO(b"not a real pdf at all"), "broken.pdf")},
+            content_type="multipart/form-data",
+        )
+        assert r.status_code == 422
+
+    def test_upload_unsupported_ext_returns_400(self, client):
+        r = client.post(
+            "/api/docs",
+            data={"file": (io.BytesIO(b"hello"), "notes.xyz")},
+            content_type="multipart/form-data",
+        )
+        assert r.status_code == 400
+
     def test_upload_empty(self, client):
         r = client.post("/api/docs", json={"title": "", "content": ""})
         assert r.status_code == 400

@@ -1,0 +1,17 @@
+{
+  "name": "Petrunko's Reader",
+  "short_name": "Reader",
+  "description": "Markdown → красива сторінка з якісною озвучкою",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f14",
+  "theme_color": "#7c5cfc",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

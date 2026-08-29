@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Merriweather:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#7c5cfc">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
@@ -105,22 +109,22 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
 .art h2:first-of-type{margin-top:0}
 .art h3{font-family:var(--fa);font-size:21px;font-weight:700;line-height:1.4;margin:40px 0 14px;color:var(--a-ac)}
 .art h4{font-size:18px;font-weight:700;margin:28px 0 10px;color:var(--a-hd)}
-.art p{font-family:var(--fa);font-size:17px;line-height:1.85;margin:0 0 20px;color:var(--a-tx);text-align:justify;hyphens:auto}
+.art p{font-family:var(--fa);font-size:var(--art-fs,17px);line-height:var(--art-lh,1.85);margin:0 0 20px;color:var(--a-tx);text-align:justify;hyphens:auto}
 .art ul,.art ol{margin:0 0 20px;padding-left:28px}
-.art li{font-family:var(--fa);font-size:17px;line-height:1.8;margin-bottom:8px;color:var(--a-tx)}
+.art li{font-family:var(--fa);font-size:var(--art-fs,17px);line-height:var(--art-lh,1.8);margin-bottom:8px;color:var(--a-tx)}
 .art li::marker{color:var(--a-acl)}
 .art strong{font-weight:700;color:var(--a-st)}
 .art em{font-style:italic;color:var(--a-em)}
 .art a{color:var(--a-lk);text-decoration:underline;text-decoration-color:rgba(124,74,45,.25);text-underline-offset:3px;transition:text-decoration-color .2s}
 .art a:hover{text-decoration-color:var(--a-lk)}
 .art blockquote{margin:28px 0;padding:20px 24px;background:var(--a-bq);border-left:4px solid var(--a-bqb);border-radius:0 var(--rx) var(--rx) 0}
-.art blockquote p{font-size:16px;color:var(--a-sec);margin-bottom:0}
+.art blockquote p{font-size:calc(var(--art-fs,17px) - 1px);color:var(--a-sec);margin-bottom:0}
 .art code{font-family:var(--fm);font-size:14px;background:var(--a-ic);color:var(--a-ict);padding:2px 7px;border-radius:4px}
 .art pre{margin:24px 0;border-radius:var(--rs);overflow:hidden;border:1px solid rgba(128,128,128,.15)}
 .art pre code{display:block;padding:22px;background:var(--a-cbg)!important;color:#abb2bf;font-size:13px;line-height:1.65;overflow-x:auto}
 .art table{width:100%;margin:28px 0;border-collapse:separate;border-spacing:0;border-radius:var(--rs);overflow:hidden;border:1px solid var(--a-bd);font-size:15px}
-.art th{padding:14px 18px;text-align:left;background:var(--a-th);font-weight:700;color:var(--a-ac);border-bottom:2px solid var(--a-bd);font-size:13px;text-transform:uppercase;letter-spacing:.5px}
-.art td{padding:14px 18px;border-bottom:1px solid var(--a-bl);color:var(--a-tx);font-family:var(--fa);font-size:15px;line-height:1.6}
+.art th{padding:14px 18px;text-align:left;background:var(--a-th);font-weight:700;color:var(--a-ac);border-bottom:2px solid var(--a-bd);font-size:calc(var(--art-fs,17px) - 4px);text-transform:uppercase;letter-spacing:.5px}
+.art td{padding:14px 18px;border-bottom:1px solid var(--a-bl);color:var(--a-tx);font-family:var(--fa);font-size:calc(var(--art-fs,17px) - 2px);line-height:1.6}
 .art tr:last-child td{border-bottom:none}
 .art tr:nth-child(even) td{background:var(--a-even)}
 .art hr{border:none;height:1px;background:linear-gradient(90deg,transparent,var(--a-bd),transparent);margin:44px 0}
@@ -177,7 +181,7 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
   .art h1{font-size:24px;margin-bottom:20px}
   .art h2{font-size:20px;margin:32px 0 14px;padding-bottom:10px}
   .art h3{font-size:18px;margin:28px 0 10px}
-  .art p,.art li{font-size:15px;line-height:1.7}
+  .art p,.art li{font-size:calc(var(--art-fs,17px) - 2px);line-height:var(--art-lh,1.7)}
   .art table{font-size:13px;display:block;overflow-x:auto}
   .art th,.art td{padding:10px 12px}
   .art pre code{font-size:12px;padding:14px}
@@ -213,6 +217,16 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
 .kb-item-load{padding:4px 10px;background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.2);border-radius:var(--rx);color:var(--ac2);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;flex-shrink:0;margin-left:6px}
 .kb-item-load:hover{background:rgba(124,92,252,.2)}
 .kb-loading{padding:16px;text-align:center;color:var(--ed-dm);font-size:12px}
+.kb-search{flex:1;min-width:140px;padding:8px 12px;background:var(--ed-card);border:1px solid var(--ed-bd);border-radius:var(--rx);color:var(--ed-tx);font-size:13px;font-family:var(--fb);outline:none}
+.kb-search:focus{border-color:var(--ed-bh)}
+.kb-progress{height:3px;background:rgba(124,92,252,.12);overflow:hidden}
+.kb-progress-bar{height:100%;width:0%;background:var(--g1);transition:width .2s}
+.kb-drop-drag{outline:2px dashed var(--ac1);outline-offset:-4px;border-color:var(--ed-bh)}
+.read-ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:36px}
+.read-ctl button{padding:6px 10px;background:rgba(139,94,60,.08);border:1px solid rgba(139,94,60,.15);border-radius:var(--rx);color:var(--a-ac);font-size:12px;cursor:pointer;font-family:var(--fb);font-weight:600;transition:all .15s;white-space:nowrap}
+.read-ctl button:hover{background:rgba(139,94,60,.16)}
+.read-ctl select{padding:5px 6px;background:var(--a-card);border:1px solid var(--a-bd);border-radius:var(--rx);color:var(--a-tx);font-size:12px;font-family:var(--fb);cursor:pointer;outline:none}
+.read-ctl .fsv{font-size:12px;color:var(--a-sec);min-width:18px;text-align:center}
 </style>
 </head>
 <body>
@@ -239,7 +253,7 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
     <div class="bbar-h">
       <span class="chip"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
       <span class="chip">Клік на текст = читати звідси</span>
-      <span class="chip">22 мови TTS</span>
+      <span class="chip">23 мови TTS</span>
     </div>
   </div>
   <div class="smp">
@@ -254,9 +268,11 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
   <div class="kb-panel" id="kb-panel">
     <div class="kb-header">
       <span class="kb-title">📚 База знань</span>
+      <input type="text" class="kb-search" id="kb-search" placeholder="Пошук документів..." autocomplete="off">
       <label class="kb-upload-btn" for="kb-file">+ Завантажити файл</label>
       <input type="file" id="kb-file" accept=".txt,.md,.markdown,.text,.pdf,.epub,.fb2,.mobi,.azw3" style="display:none" onchange="kbUploadFile(this)">
     </div>
+    <div class="kb-progress" id="kb-progress"><div class="kb-progress-bar" id="kb-progress-bar"></div></div>
     <div class="kb-list" id="kb-list">
       <div class="kb-empty">Завантажте книги або документи для читання</div>
     </div>
@@ -266,6 +282,22 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
 <div id="reading-screen">
   <div class="topbar">
     <button class="btn-back" onclick="closeReader()">← Назад</button>
+    <div class="read-ctl" id="read-ctl">
+      <button title="Менший шрифт" onclick="adjFont(-1)">A−</button>
+      <span class="fsv" id="fs-cnt">17</span>
+      <button title="Більший шрифт" onclick="adjFont(1)">A+</button>
+      <select id="lh-sel" title="Міжрядковий інтервал" onchange="setLineHeight(this.value)">
+        <option value="1.5">1.5</option>
+        <option value="1.8" selected>1.8</option>
+        <option value="2.1">2.1</option>
+      </select>
+      <select id="col-sel" title="Ширина колонки" onchange="setColWidth(this.value)">
+        <option value="680px">Вузька</option>
+        <option value="820px" selected>Звичайна</option>
+        <option value="1000px">Широка</option>
+      </select>
+      <button title="Завантажити весь текст як MP3" onclick="downloadBookMP3()">⬇ MP3</button>
+    </div>
     <div class="rm">
       <span class="lb" id="det-lang"></span>
       <span id="word-cnt"></span>
@@ -276,6 +308,10 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
 
 <div class="tts-bar" id="tts-bar">
   <button class="pr" id="tts-btn" onclick="ttsToggle()">▶ Читати</button>
+  <button title="Попередній абзац" onclick="ttsPrev()">‹</button>
+  <button title="Наступний абзац" onclick="ttsNext()">›</button>
+  <select id="tts-toc" title="Оглавлення" onchange="jumpToc(this.value)"><option value="">Зміст</option></select>
+  <span class="tts-eng" id="tts-eng">edge-tts</span>
   <div class="tc"><span>Мова:</span><select id="tts-lang"></select></div>
   <div class="tc"><span>Голос:</span><select id="tts-voice"></select></div>
   <div class="tc">
@@ -289,10 +325,9 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
       <option value="+50%">1.5x</option>
     </select>
   </div>
-  <span class="tts-eng" id="tts-eng">edge-tts</span>
   <div class="tp"><div class="tpf" id="tpf"></div></div>
   <div class="ts" id="tts-st">0%</div>
-  <button onclick="ttsStop()">⏹</button>
+  <button onclick="ttsStop()" title="Стоп">⏹</button>
 </div>
 
 <audio id="tts-audio" preload="auto"></audio>
@@ -358,7 +393,16 @@ loadTheme();
 editor.addEventListener('input',()=>{document.getElementById('char-cnt').textContent=editor.value.length+' символів'});
 editor.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();openReader()}});
 
-function detectLang(t){for(const l of LANGS)if(l.d&&l.d.test(t))return l;return LANGS.find(l=>l.c==='en-US')}
+function detectLang(t){
+  if(/[іїєґ]/i.test(t))return LANGS.find(l=>l.c==='uk-UA');
+  if(/[ыэъё]/i.test(t))return LANGS.find(l=>l.c==='ru-RU');
+  for(const l of LANGS){
+    if(l.c==='uk-UA'||l.c==='ru-RU')continue;
+    if(l.d&&l.d.test(t))return l;
+  }
+  if(/[а-я]/i.test(t))return LANGS.find(l=>l.c==='uk-UA');
+  return LANGS.find(l=>l.c==='en-US');
+}
 
 function cleanTTS(text){
   return text
@@ -380,29 +424,60 @@ function cleanTTS(text){
     .trim();
 }
 
+function splitChunkIntoWords(el,startGlobal){
+  let gi=startGlobal;
+  const walk=node=>{
+    Array.from(node.childNodes).forEach(child=>{
+      if(child.nodeType===Node.TEXT_NODE){
+        const parts=child.textContent.split(/(\s+)/);
+        const frag=document.createDocumentFragment();
+        parts.forEach(part=>{
+          if(!part)return;
+          if(/^\s+$/.test(part)){
+            frag.appendChild(document.createTextNode(part));
+          }else{
+            const span=document.createElement('span');
+            span.className='w';
+            span.setAttribute('data-w',gi);
+            span.textContent=part;
+            gi++;
+            frag.appendChild(span);
+          }
+        });
+        child.parentNode.replaceChild(frag,child);
+      }else if(child.nodeType===Node.ELEMENT_NODE){
+        walk(child);
+      }
+    });
+  };
+  walk(el);
+  return gi;
+}
+
 function buildChunks(){
   ttsChunks=[];
   chunkWordCounts=[];
+  const toc=document.getElementById('tts-toc');
+  toc.innerHTML='<option value="">Зміст</option>';
   const els=artEl.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th');
   let wordOffset=0;
-  els.forEach((el,i)=>{
+  els.forEach(el=>{
     const raw=el.textContent.trim();
     if(!raw)return;
     const cleaned=cleanTTS(raw);
     if(!cleaned||cleaned.length<3)return;
-    el.setAttribute('data-p',ttsChunks.length);
+    const chunkIndex=ttsChunks.length;
+    el.setAttribute('data-p',chunkIndex);
     ttsChunks.push(cleaned);
-    const words=cleaned.split(/\s+/).filter(w=>w);
-    chunkWordCounts.push({offset:wordOffset,count:words.length});
-    wordOffset+=words.length;
-    el.innerHTML='';
-    words.forEach((w,wi)=>{
-      const span=document.createElement('span');
-      span.className='w';
-      span.setAttribute('data-w',wordOffset-words.length+wi);
-      span.textContent=w+' ';
-      el.appendChild(span);
-    });
+    const startOffset=wordOffset;
+    wordOffset=splitChunkIntoWords(el,wordOffset);
+    chunkWordCounts.push({offset:startOffset,count:wordOffset-startOffset});
+    if(/^H[1-6]$/.test(el.tagName)){
+      const opt=document.createElement('option');
+      opt.value=chunkIndex;
+      opt.textContent=cleaned.trim().slice(0,80);
+      toc.appendChild(opt);
+    }
     el.addEventListener('click',()=>{
       if(playing&&idx===parseInt(el.getAttribute('data-p'))){ttsStop();return}
       startFrom(parseInt(el.getAttribute('data-p')));
@@ -419,29 +494,33 @@ function highlightWord(globalIdx){
   if(el){el.classList.add('w-hl');currentWordEl=el}
 }
 
-function getWordForTime(el,duration){
-  if(!el)return 0;
-  const cur=el.currentTime||0;
-  const words=el.closest('[data-p]')?
-    chunkWordCounts.find(c=>c.offset<=parseInt(el.getAttribute('data-p'))*1000):
-    null;
-  return cur;
-}
-
 let wordHighlightRAF=null;
+function rateMultiplier(rate){
+  const m=rate.match(/([+-]?\d+)/);
+  return m?1+parseInt(m[1])/100:1;
+}
+function wordEndTimes(chunkText,mult){
+  const cps=(195/60)*5*mult;
+  const ends=[];let t=0;
+  const words=chunkText.split(/\s+/).filter(w=>w);
+  for(const w of words){t+=Math.max(1,w.length)/cps;ends.push(t)}
+  return ends;
+}
 function startWordHighlight(audioEl,chunkIdx){
   cancelAnimationFrame(wordHighlightRAF);
   const info=chunkWordCounts[chunkIdx];
   if(!info)return;
-  const totalWords=info.count;
-  const offset=info.offset;
+  const ends=wordEndTimes(ttsChunks[chunkIdx]||'',rateMultiplier(curRate));
+  const total=ends.length?ends[ends.length-1]:1;
+  let wi=0;
   function tick(){
     if(!playing)return;
     const dur=audioEl.duration||1;
     const cur=audioEl.currentTime||0;
-    const frac=Math.min(cur/dur,1);
-    const wordIdx=Math.min(Math.floor(frac*totalWords),totalWords-1);
-    highlightWord(offset+wordIdx);
+    const scale=dur/total;
+    const ct=Math.min(cur/scale,total);
+    while(wi<ends.length&&ends[wi]<ct)wi++;
+    highlightWord(info.offset+Math.min(wi,ends.length-1));
     wordHighlightRAF=requestAnimationFrame(tick);
   }
   wordHighlightRAF=requestAnimationFrame(tick);
@@ -475,7 +554,10 @@ function openReader(){
   document.getElementById('lang-toggle').value=l.c;
   populateVoices(l.c);
   document.getElementById('word-cnt').textContent=t.split(/\s+/).filter(w=>w).length+' слів';
-  localStorage.setItem('chitala_text',t);
+  try{
+    localStorage.setItem('chitala_text',t.length<=1000000?t:t.slice(0,1000000));
+  }catch(e){}
+  applyReadSettings();
 }
 
 function closeReader(){
@@ -568,6 +650,20 @@ ttsVoice.addEventListener('change',()=>{
 ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();startFrom(pos)}});
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='',ttsGeneration=0;
+let downloadingBook=false;
+let backendProbed=false;
+let ttsCachePromise=null;
+
+function getTTSCache(){
+  if(!('caches' in window))return null;
+  if(!ttsCachePromise)ttsCachePromise=caches.open('preader_tts');
+  return ttsCachePromise;
+}
+function ttsCacheKey(text,voice,rate){
+  let h=0;
+  for(let i=0;i<text.length;i++){h=(h*31+text.charCodeAt(i))>>>0}
+  return voice+'|'+rate+'|'+h.toString(36);
+}
 
 function isPiperVoice(v){return v&&v.startsWith('piper:')}
 
@@ -583,11 +679,13 @@ ttsVoice.addEventListener('change',updateEngineBadge);
 
 async function detectBackend(){
   if(isPiperVoice(ttsVoice.value)){mode='edge';return}
+  if(backendProbed)return;
   try{
     const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'test',voice:'uk-UA-PolinaNeural',rate:'+0%'})});
-    if(r.ok||r.status===500){mode='edge';return}
+    if(r.ok||r.status===500){mode='edge';backendProbed=true;return}
   }catch{}
   mode='browser';
+  backendProbed=true;
 }
 
 async function startFrom(i){
@@ -603,8 +701,19 @@ async function startFrom(i){
 }
 
 async function edgeSpeak(text,voice,rate){
+  const cache=await getTTSCache();
+  const req=cache?new Request('/api/tts?c='+ttsCacheKey(text,voice,rate)):null;
+  if(cache&&req){
+    try{
+      const hit=await cache.match(req);
+      if(hit)return URL.createObjectURL(await hit.blob());
+    }catch{}
+  }
   const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice,rate})});
   if(!r.ok)throw new Error('TTS failed');
+  if(cache&&req){
+    try{await cache.put(req,r.clone())}catch{}
+  }
   return URL.createObjectURL(await r.blob());
 }
 
@@ -703,6 +812,100 @@ function updateP(){
   document.getElementById('tts-st').textContent=p+'%';
 }
 
+function ttsNext(){
+  if(idx<ttsChunks.length-1){ttsAudioEl.pause();speechSynthesis.cancel();idx++;updateP();startFrom(idx)}
+}
+function ttsPrev(){
+  if(idx>0){ttsAudioEl.pause();speechSynthesis.cancel();idx--;updateP();startFrom(idx)}
+}
+function jumpToc(v){
+  if(v===''||v===null)return;
+  ttsAudioEl.pause();speechSynthesis.cancel();
+  startFrom(parseInt(v));
+}
+
+function applyReadSettings(){
+  const fs=parseInt(localStorage.getItem('preader_fs')||'17');
+  const fsv=isNaN(fs)?17:Math.max(12,Math.min(40,fs));
+  const lh=localStorage.getItem('preader_lh')||'1.8';
+  const col=localStorage.getItem('preader_col')||'820px';
+  artEl.style.setProperty('--art-fs',fsv+'px');
+  artEl.style.setProperty('--art-lh',lh);
+  document.getElementById('reading-screen').style.maxWidth=col;
+  document.getElementById('lh-sel').value=lh;
+  document.getElementById('col-sel').value=col;
+  document.getElementById('fs-cnt').textContent=fsv;
+}
+function adjFont(delta){
+  const cur=parseInt(localStorage.getItem('preader_fs')||'17');
+  const next=Math.max(12,Math.min(40,(isNaN(cur)?17:cur)+delta));
+  localStorage.setItem('preader_fs',String(next));
+  artEl.style.setProperty('--art-fs',next+'px');
+  document.getElementById('fs-cnt').textContent=next;
+}
+function setLineHeight(lh){
+  localStorage.setItem('preader_lh',lh);
+  artEl.style.setProperty('--art-lh',lh);
+}
+function setColWidth(col){
+  localStorage.setItem('preader_col',col);
+  document.getElementById('reading-screen').style.maxWidth=col;
+}
+
+async function downloadBookMP3(){
+  if(!ttsChunks.length||downloadingBook)return;
+  downloadingBook=true;
+  let voice=curVoice||ttsVoice.value||'uk-UA-PolinaNeural';
+  if(isPiperVoice(voice))voice='uk-UA-PolinaNeural';
+  const rate=curRate||ttsSpeed.value;
+  const st=document.getElementById('tts-st');
+  const prevBtn=document.getElementById('tts-btn').textContent;
+  const cache=await getTTSCache();
+  const parts=[];
+  try{
+    for(let i=0;i<ttsChunks.length;i++){
+      st.textContent=(i+1)+'/'+ttsChunks.length;
+      const keyReq=cache?new Request('/api/tts?c='+ttsCacheKey(ttsChunks[i],voice,rate)):null;
+      let blob;
+      if(keyReq&&cache){
+        const hit=await cache.match(keyReq);
+        blob=hit?await hit.blob():null;
+      }
+      if(!blob){
+        const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:ttsChunks[i],voice,rate})});
+        if(!r.ok)throw new Error('Помилка генерації чанку '+i);
+        blob=await r.blob();
+        if(keyReq&&cache){try{await cache.put(keyReq,r.clone())}catch{}}
+      }
+      parts.push(await blob.arrayBuffer());
+    }
+    const merged=new Blob(parts,{type:'audio/mpeg'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(merged);
+    a.download='chytalka.mp3';
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+    a.remove();
+  }catch(e){
+    console.error(e);
+    alert('Помилка генерації MP3: '+(e.message||''));
+  }finally{
+    downloadingBook=false;
+    st.textContent='0%';
+    document.getElementById('tts-btn').textContent=prevBtn;
+  }
+}
+
+document.addEventListener('keydown',e=>{
+  const tag=e.target&&e.target.tagName;
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(document.getElementById('reading-screen').style.display!=='block')return;
+  if(e.key===' '){e.preventDefault();ttsToggle();return}
+  if(e.key==='ArrowLeft'){e.preventDefault();ttsPrev();return}
+  if(e.key==='ArrowRight'){e.preventDefault();ttsNext();return}
+  if(e.key==='Escape'){e.preventDefault();ttsStop()}
+});
+
 speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
 speechSynthesis.getVoices();
 
@@ -711,6 +914,13 @@ function init(){
   populateVoices(l.c);
   initLangToggle(l.c);
   kbLoadList();
+  setupKbDrop();
+  applyReadSettings();
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    });
+  }
 }
 
 function initLangToggle(currentLang){
@@ -734,16 +944,38 @@ init();
 
 // ── Knowledge Base ──
 
+let kbSearchTimer=null;
+document.getElementById('kb-search').addEventListener('input',e=>{
+  clearTimeout(kbSearchTimer);
+  kbSearchTimer=setTimeout(()=>kbLoadList(),300);
+});
+
+function setupKbDrop(){
+  const panel=document.getElementById('kb-panel');
+  if(!panel)return;
+  panel.addEventListener('dragover',e=>{e.preventDefault();panel.classList.add('kb-drop-drag')});
+  panel.addEventListener('dragleave',()=>panel.classList.remove('kb-drop-drag'));
+  panel.addEventListener('drop',e=>{
+    e.preventDefault();
+    panel.classList.remove('kb-drop-drag');
+    const file=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(file)kbUploadBytes(file);
+  });
+}
+
 async function kbLoadList(){
+  const query=document.getElementById('kb-search').value.trim();
   const list=document.getElementById('kb-list');
   list.innerHTML='<div class="kb-loading">Завантаження...</div>';
   try{
-    const r=await fetch('/api/docs');
+    const r=await fetch('/api/docs'+(query?'?q='+encodeURIComponent(query):''));
     if(!r.ok)throw new Error('Failed');
     const data=await r.json();
     const docs=data.documents||[];
     if(!docs.length){
-      list.innerHTML='<div class="kb-empty">Завантажте книги або документи для читання</div>';
+      list.innerHTML=query
+        ?'<div class="kb-empty">Нічого не знайдено</div>'
+        :'<div class="kb-empty">Завантажте книги або документи для читання</div>';
       return;
     }
     list.innerHTML='';
@@ -763,17 +995,32 @@ async function kbLoadList(){
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
-async function kbUploadFile(input){
-  const file=input.files[0];
-  if(!file)return;
+function kbUploadFile(input){
+  const file=input&&input.files&&input.files[0];
+  if(file)kbUploadBytes(file);
+  if(input)input.value='';
+}
+
+function showKbProgress(p){
+  const bar=document.getElementById('kb-progress-bar');
+  if(p<0){setTimeout(()=>{if(bar){bar.style.width='0%'}},500);return}
+  if(bar)bar.style.width=p+'%';
+}
+
+function kbUploadBytes(file){
+  if(file.size>2*1024*1024){alert('Файл завеликий (макс 2 МБ)');return}
+  const xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/docs');
+  xhr.upload.onprogress=e=>{if(e.lengthComputable)showKbProgress(Math.round(e.loaded/e.total*100))};
+  xhr.onload=()=>{
+    showKbProgress(-1);
+    if(xhr.status>=200&&xhr.status<300){kbLoadList()}
+    else{alert('Помилка: '+xhr.responseText)}
+  };
+  xhr.onerror=()=>{showKbProgress(-1);alert('Помилка завантаження')};
   const fd=new FormData();
   fd.append('file',file);
-  try{
-    const r=await fetch('/api/docs',{method:'POST',body:fd});
-    if(!r.ok){const t=await r.text();alert('Помилка: '+t);return}
-    kbLoadList();
-  }catch(e){alert('Помилка завантаження')}
-  input.value='';
+  xhr.send(fd);
 }
 
 async function kbLoadDoc(id){

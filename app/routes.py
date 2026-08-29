@@ -21,14 +21,6 @@ def is_valid_voice(voice: str) -> bool:
     return voice in ALL_VOICE_NAMES
 
 
-@api.after_request
-def add_cors_headers(response: Response) -> Response:
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return response
-
-
 @api.route("/health", methods=["GET"])
 def health_check() -> dict:
     return {"status": "ok"}
@@ -100,7 +92,11 @@ def docs_upload():
             fmt = ext.lstrip(".")
         else:
             from app.document_parser import parse_document
-            content, fmt = parse_document(file.filename, raw)
+            try:
+                content, fmt = parse_document(file.filename, raw)
+            except Exception as e:
+                logger.error("Document parse error: %s", e)
+                content, fmt = "", ""
             if not content:
                 return Response(f"Could not extract text from {ext}", status=422)
     else:
@@ -167,6 +163,18 @@ def create_app() -> "Flask":
     @app.route("/")
     def index():
         return send_from_directory(STATIC_DIR, "index.html")
+
+    @app.route("/manifest.json")
+    def manifest():
+        return send_from_directory(STATIC_DIR, "manifest.json")
+
+    @app.route("/sw.js")
+    def service_worker():
+        return send_from_directory(STATIC_DIR, "sw.js")
+
+    @app.route("/icon.svg")
+    def icon():
+        return send_from_directory(STATIC_DIR, "icon.svg")
 
     @app.route("/favicon.ico")
     def favicon():
