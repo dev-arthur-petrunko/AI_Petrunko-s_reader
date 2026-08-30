@@ -6,6 +6,7 @@ import time
 import sqlite3
 import asyncio
 import logging
+import tempfile
 
 from flask import Flask, request, Response, send_from_directory
 
@@ -126,9 +127,30 @@ def tts_generate() -> Response:
         return Response("TTS generation failed", status=status)
 
 
-# ── База знань (працює локально та на Render, недоступна на Vercel serverless) ──
+# ── База знань (працює локально, на Render і на serverless через записувану папку) ──
 
-DB_PATH = os.path.join(PROJECT_ROOT, "knowledge_base.db")
+
+def _pick_writable_dir() -> str:
+    """Записувана директорія: KB_DB_DIR → проєкт → /tmp (для Vercel serverless)."""
+    candidates = []
+    if os.environ.get("KB_DB_DIR"):
+        candidates.append(os.environ["KB_DB_DIR"])
+    candidates.append(PROJECT_ROOT)
+    candidates.append(os.path.join(tempfile.gettempdir(), "kb_data"))
+    for d in candidates:
+        try:
+            os.makedirs(d, exist_ok=True)
+            probe = os.path.join(d, ".wtest")
+            with open(probe, "w") as f:
+                f.write("x")
+            os.unlink(probe)
+            return d
+        except OSError:
+            continue
+    return tempfile.gettempdir()
+
+
+DB_PATH = os.path.join(_pick_writable_dir(), "knowledge_base.db")
 
 
 def _kb_available():

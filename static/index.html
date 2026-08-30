@@ -1030,7 +1030,8 @@ async function kbLoadDoc(id){
     const doc=await r.json();
     editor.value=doc.content;
     editor.dispatchEvent(new Event('input'));
-    window.scrollTo({top:0,behavior:'smooth'});
+    if(!doc.content||!doc.content.trim())return;
+    openReader();
   }catch(e){}
 }
 

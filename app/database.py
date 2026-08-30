@@ -4,13 +4,36 @@ import os
 import time
 import sqlite3
 import logging
+import tempfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-DB_DIR = os.environ.get("KB_DB_DIR", ".")
-DB_PATH = os.path.join(DB_DIR, "knowledge_base.db")
 MAX_AGE_DAYS = 30
+
+
+def _pick_writable_dir() -> str:
+    """Вибирає записувану директорію для БД: KB_DB_DIR → проєкт → тимчасова папка."""
+    candidates = []
+    if os.environ.get("KB_DB_DIR"):
+        candidates.append(os.environ["KB_DB_DIR"])
+    candidates.append(os.path.abspath("."))
+    candidates.append(os.path.join(tempfile.gettempdir(), "kb_data"))
+    for d in candidates:
+        try:
+            os.makedirs(d, exist_ok=True)
+            probe = os.path.join(d, ".wtest")
+            with open(probe, "w") as f:
+                f.write("x")
+            os.unlink(probe)
+            return d
+        except OSError:
+            continue
+    return tempfile.gettempdir()
+
+
+DB_DIR = _pick_writable_dir()
+DB_PATH = os.path.join(DB_DIR, "knowledge_base.db")
 
 
 def _get_conn() -> sqlite3.Connection:

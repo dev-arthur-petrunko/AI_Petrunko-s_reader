@@ -9,36 +9,56 @@ logger = logging.getLogger(__name__)
 
 
 def parse_pdf(data: bytes) -> str:
-    """Текст з PDF."""
-    from PyPDF2 import PdfReader
+    """Текст з PDF (pypdf, з підтримкою зашифрованих і стійкістю до битих сторінок)."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        from PyPDF2 import PdfReader
+
     reader = PdfReader(io.BytesIO(data))
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")
+        except Exception:
+            pass
+
     parts = []
     for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            parts.append(text)
+        try:
+            text = page.extract_text()
+        except Exception:
+            text = ""
+        if text and text.strip():
+            parts.append(text.strip())
     return "\n\n".join(parts)
 
 
 def parse_epub(data: bytes) -> str:
-    """Текст з EPUB (зберігає порядок глав)."""
+    """Текст з EPUB (зберігає порядок глав, пропускає биті)."""
     from ebooklib import epub
     from lxml import etree
 
     book = epub.read_epub(io.BytesIO(data), options={"ignore_ncx": True, "ignore_smil": True})
+    doc_type = getattr(epub, "ITEM_DOCUMENT", 9)
     parts = []
 
     for item in book.get_items():
-        if item.get_type() == 9:
-            html = item.get_content()
-            try:
-                tree = etree.HTML(html)
-                text = etree.tostring(tree, method="text", encoding="unicode")
-                text = text.strip()
-                if text:
-                    parts.append(text)
-            except Exception:
-                pass
+        if item.get_type() != doc_type:
+            continue
+        html = item.get_content()
+        try:
+            tree = etree.HTML(html)
+            text = etree.tostring(tree, method="text", encoding="unicode")
+            text = text.strip()
+        except Exception:
+            text = ""
+        title = item.get_name()
+        if not text:
+            continue
+        if title and title.lower().lstrip("/").startswith("nav"):
+            continue
+        if len(parts) < 2000 and text:
+            parts.append(text)
 
     return "\n\n".join(parts)
 

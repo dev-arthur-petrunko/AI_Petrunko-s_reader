@@ -64,11 +64,11 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
   - Plain text & Markdown: `.txt`, `.md`, `.markdown`, `.text`
   - eBooks: `.pdf`, `.epub`, `.fb2`, `.mobi`, `.azw3`
 - Binary formats are automatically converted to text (PDF page extraction, EPUB chapter order, FB2 XML parsing, MOBI/AZW3 unpacking)
-- Click to load any document directly into the editor
+- Click "Читати" to load any document into the editor and open the reader immediately
 - Search documents by title and content
 - Drag & drop file upload with a progress bar
 - Auto-cleanup: documents not accessed for 30 days are removed
-- SQLite storage (works locally and on Render; 501 on Vercel serverless)
+- SQLite storage (works locally, on Render, and on Vercel serverless — DB auto-falls back to a writable dir, `KB_DB_DIR` env takes priority)
 
 ### PWA (Progressive Web App)
 - `manifest.json` + service worker cache the app shell for offline use

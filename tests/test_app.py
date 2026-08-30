@@ -242,6 +242,18 @@ class TestKnowledgeBase:
         )
         assert r.status_code == 422
 
+    def test_upload_text_pdf_returns_201(self, client):
+        r = client.post(
+            "/api/docs",
+            data={"file": (io.BytesIO(TestDocumentParser._text_pdf("Hello PDF world by Petrunko")), "book.pdf")},
+            content_type="multipart/form-data",
+        )
+        assert r.status_code == 201
+        doc_id = r.get_json()["id"]
+        r2 = client.get(f"/api/docs/{doc_id}")
+        assert r2.status_code == 200
+        assert "Hello PDF world" in r2.get_json()["content"]
+
     def test_upload_unsupported_ext_returns_400(self, client):
         r = client.post(
             "/api/docs",
@@ -288,9 +300,36 @@ class TestKnowledgeBase:
 
 
 class TestDocumentParser:
+    @staticmethod
+    def _text_pdf(text: str) -> bytes:
+        """Мінімальний PDF з текстом (без зовнішніх залежностей)."""
+        stream = f"BT /F1 24 Tf 72 720 Td ({text}) Tj ET"
+        objs = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream".encode("latin-1"),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ]
+        out = io.BytesIO()
+        out.write(b"%PDF-1.4\n")
+        offsets = [0]
+        for i, o in enumerate(objs, 1):
+            offsets.append(out.tell())
+            out.write(f"{i} 0 obj\n".encode("latin-1"))
+            out.write(o)
+            out.write(b"\nendobj\n")
+        xref = out.tell()
+        out.write(f"xref\n0 {len(objs) + 1}\n".encode("latin-1"))
+        out.write(b"0000000000 65535 f \n")
+        for off in offsets[1:]:
+            out.write(f"{off:010d} 00000 n \n".encode("latin-1"))
+        out.write(f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode("latin-1"))
+        return out.getvalue()
+
     def test_parse_pdf(self):
         from app.document_parser import parse_pdf
-        from PyPDF2 import PdfWriter
+        from pypdf import PdfWriter
 
         writer = PdfWriter()
         writer.add_blank_page(width=612, height=792)
@@ -300,6 +339,12 @@ class TestDocumentParser:
 
         result = parse_pdf(pdf_bytes)
         assert isinstance(result, str)
+
+    def test_parse_pdf_with_text(self):
+        from app.document_parser import parse_pdf
+
+        result = parse_pdf(self._text_pdf("Hello PDF world by Petrunko"))
+        assert "Hello PDF world" in result
 
     def test_parse_epub(self):
         from app.document_parser import parse_epub
