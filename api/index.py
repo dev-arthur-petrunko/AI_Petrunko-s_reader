@@ -192,7 +192,7 @@ def docs_list():
 def docs_upload():
     if not KB_OK:
         return Response("Knowledge base not available on serverless", status=501)
-    allowed = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3"}
+    allowed = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3", ".docx", ".odt", ".rtf", ".html", ".htm"}
     if request.content_type and "multipart" in request.content_type:
         f = request.files.get("file")
         if not f or not f.filename:

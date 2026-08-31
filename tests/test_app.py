@@ -254,6 +254,22 @@ class TestKnowledgeBase:
         assert r2.status_code == 200
         assert "Hello PDF world" in r2.get_json()["content"]
 
+    def test_upload_docx_returns_201(self, client):
+        from docx import Document
+        doc = Document()
+        doc.add_paragraph("Hello DOCX upload")
+        buf = io.BytesIO()
+        doc.save(buf)
+        r = client.post(
+            "/api/docs",
+            data={"file": (io.BytesIO(buf.getvalue()), "report.docx")},
+            content_type="multipart/form-data",
+        )
+        assert r.status_code == 201
+        doc_id = r.get_json()["id"]
+        r2 = client.get(f"/api/docs/{doc_id}")
+        assert "Hello DOCX upload" in r2.get_json()["content"]
+
     def test_upload_unsupported_ext_returns_400(self, client):
         r = client.post(
             "/api/docs",
@@ -384,3 +400,50 @@ class TestDocumentParser:
         text, fmt = parse_document("test.xyz", b"data")
         assert text == ""
         assert fmt == ""
+
+    def test_parse_docx(self):
+        from app.document_parser import parse_docx
+        from docx import Document
+
+        doc = Document()
+        doc.add_paragraph("Hello DOCX world")
+        doc.add_paragraph("Second paragraph")
+        buf = io.BytesIO()
+        doc.save(buf)
+
+        result = parse_docx(buf.getvalue())
+        assert "Hello DOCX world" in result
+        assert "Second paragraph" in result
+
+    def test_parse_rtf(self):
+        from app.document_parser import parse_rtf
+
+        rtf = (
+            "{\\rtf1\\ansi\\deff0 "
+            "{\\fonttbl{\\f0 Helvetica;}}"
+            "\\f0\\fs24 Hello RTF world \\par Second line}"
+        ).encode("utf-8")
+        result = parse_rtf(rtf)
+        assert "Hello RTF world" in result
+        assert "Second line" in result
+
+    def test_parse_html(self):
+        from app.document_parser import parse_html
+
+        html = "<html><body><h1>Title</h1><p>Hello HTML world</p></body></html>".encode("utf-8")
+        result = parse_html(html)
+        assert "Hello HTML world" in result
+
+    def test_parse_odt(self):
+        from app.document_parser import parse_odt
+        from odf.opendocument import OpenDocumentText
+        from odf.text import P
+
+        odt = OpenDocumentText()
+        p = P(text="Hello ODT world")
+        odt.text.addElement(p)
+        buf = io.BytesIO()
+        odt.save(buf)
+
+        result = parse_odt(buf.getvalue())
+        assert "Hello ODT world" in result

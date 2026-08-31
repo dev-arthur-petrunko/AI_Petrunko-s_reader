@@ -63,7 +63,8 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Upload documents in many formats to build a personal library:
   - Plain text & Markdown: `.txt`, `.md`, `.markdown`, `.text`
   - eBooks: `.pdf`, `.epub`, `.fb2`, `.mobi`, `.azw3`
-- Binary formats are automatically converted to text (PDF page extraction, EPUB chapter order, FB2 XML parsing, MOBI/AZW3 unpacking)
+  - Office: `.docx`, `.odt`, `.rtf`, `.html`, `.htm`
+- Binary formats are automatically converted to text in Python (PDF page extraction with encryption/robustness, EPUB chapter order, FB2 XML parsing, MOBI/AZW3 unpacking, DOCX via python-docx, ODT via odfpy, RTF/HTML via lxml)
 - Click "Читати" to load any document into the editor and open the reader immediately
 - Search documents by title and content
 - Drag & drop file upload with a progress bar
@@ -128,7 +129,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 ├── tts_cache/             # Cached audio files (gitignored)
 ├── knowledge_base.db      # KB SQLite database (gitignored)
 ├── tests/
-│   └── test_app.py        # pytest tests (42 tests)
+│   └── test_app.py        # pytest tests (49 tests)
 ├── .github/
 │   └── workflows/
 │       └── ci.yml         # GitHub Actions CI (pytest on push/PR)
@@ -185,7 +186,7 @@ pytest tests/ -v
 ## Tech Stack
 
 - **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts >=1.4.2, flask-limiter 3.12
-- **Document parsing**: PyPDF2 (PDF), ebooklib + lxml (EPUB), lxml (FB2), mobi (MOBI/AZW3)
+- **Document parsing**: pypdf (PDF), ebooklib + lxml (EPUB), lxml (FB2), mobi (MOBI/AZW3), python-docx (DOCX), odfpy (ODT), lxml (RTF/HTML)
 - **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1, PWA (manifest + service worker)
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
 - **Hosting**: Vercel (serverless) or local Flask/gunicorn

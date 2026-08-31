@@ -14,7 +14,7 @@ api = Blueprint("api", __name__)
 
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3"}
+ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3", ".docx", ".odt", ".rtf", ".html", ".htm"}
 
 
 def is_valid_voice(voice: str) -> bool:
