@@ -44,7 +44,8 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Progress bar with percentage and chunk counter
 - Play / Pause / Resume / Stop controls
 - Markdown syntax cleaned before TTS (no reading `#`, `|`, backticks, links, images)
-- Fallback to browser `speechSynthesis` API when backend unavailable
+- Fallback to browser `speechSynthesis` API when backend unavailable (auto-recovers back to edge-tts)
+- Transient TTS errors (429 / 5xx / network) are retried with backoff instead of dropping to a bad voice
 - Audio caching by SHA-256 hash of (text + voice + rate + pitch)
 - Offline audio cache in browser Cache Storage (`preader_tts`) — repeat playback works without a network
 - Auto-cleanup of cached files older than 7 days + cache size cap (800 files)
@@ -97,7 +98,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - **Text length limit**: max 10,000 characters per TTS request
 - **MAX_CONTENT_LENGTH**: 2 MB max request size
 - **Path traversal protection**: static file routes use `send_from_directory` with validated paths
-- **Rate limiting**: flask-limiter (30 TTS requests/minute, 60 general/minute) — on both Flask and Vercel serverless
+- **Rate limiting**: flask-limiter (120 TTS requests/minute, 60 general/minute) — on both Flask and Vercel serverless
 - **Same-origin only**: wildcard CORS removed, API is only reachable from the app's own origin
 - **Temp file cleanup**: guaranteed via finally blocks
 - **Error logging**: all errors logged server-side, generic messages returned to client

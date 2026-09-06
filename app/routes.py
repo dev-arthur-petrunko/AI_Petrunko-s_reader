@@ -146,7 +146,7 @@ def create_app() -> "Flask":
         from flask_limiter.util import get_remote_address
 
         limiter = Limiter(get_remote_address, app=app, default_limits=["60/minute"])
-        api.route = limiter.limit("30/minute")(api.route)  # type: ignore
+        api.route = limiter.limit("120/minute")(api.route)  # type: ignore
     except ImportError:
         pass
 

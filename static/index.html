@@ -460,29 +460,82 @@ function buildChunks(){
   const toc=document.getElementById('tts-toc');
   toc.innerHTML='<option value="">Зміст</option>';
   const els=artEl.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th');
+  const CHUNK_MAX_WORDS=70;
+  const CHUNK_MAX_CHARS=2400;
   let wordOffset=0;
+  const items=[];
   els.forEach(el=>{
     const raw=el.textContent.trim();
     if(!raw)return;
     const cleaned=cleanTTS(raw);
-    if(!cleaned||cleaned.length<3)return;
-    const chunkIndex=ttsChunks.length;
-    el.setAttribute('data-p',chunkIndex);
-    ttsChunks.push(cleaned);
-    const startOffset=wordOffset;
+    if(!cleaned||cleaned.trim().length<3)return;
+    const start=wordOffset;
     wordOffset=splitChunkIntoWords(el,wordOffset);
-    chunkWordCounts.push({offset:startOffset,count:wordOffset-startOffset});
-    if(/^H[1-6]$/.test(el.tagName)){
+    items.push({el,start});
+  });
+  // будуємо чанки: одиниця = рядок між <br>, плюс ліміти розміру
+  let curSpans=[],curWords=0,curChars=0,chunkStart=null;
+  const flush=()=>{
+    if(!curSpans.length)return;
+    const text=curSpans.map(s=>s.textContent).join(' ').trim();
+    if(text)ttsChunks.push(text);
+    chunkWordCounts.push({offset:chunkStart,count:curSpans.length});
+    curSpans=[];curWords=0;curChars=0;chunkStart=null;
+  };
+  items.forEach(item=>{
+    const groups=brGroups(item.el);
+    groups.forEach(g=>{
+      g.forEach(span=>{
+        if(!curSpans.length)chunkStart=parseInt(span.getAttribute('data-w'));
+        curSpans.push(span);curWords++;curChars+=span.textContent.length;
+        if(curWords>=CHUNK_MAX_WORDS||curChars>=CHUNK_MAX_CHARS)flush();
+      });
+      if(curWords>=12)flush();
+    });
+    flush();
+  });
+  flush();
+  if(!ttsChunks.length)return;
+  items.forEach(item=>{
+    let chunkIdx=-1;
+    for(let ci=0;ci<chunkWordCounts.length;ci++){
+      const c=chunkWordCounts[ci];
+      if(item.start>=c.offset&&item.start<c.offset+c.count){chunkIdx=ci;break;}
+      if(item.start<c.offset)break;
+    }
+    if(chunkIdx<0)chunkIdx=0;
+    item.el.setAttribute('data-p',chunkIdx);
+    if(/^H[1-6]$/.test(item.el.tagName)){
       const opt=document.createElement('option');
-      opt.value=chunkIndex;
-      opt.textContent=cleaned.trim().slice(0,80);
+      opt.value=chunkIdx;
+      opt.textContent=item.el.textContent.trim().slice(0,80);
       toc.appendChild(opt);
     }
-    el.addEventListener('click',()=>{
-      if(playing&&idx===parseInt(el.getAttribute('data-p'))){ttsStop();return}
-      startFrom(parseInt(el.getAttribute('data-p')));
+    item.el.addEventListener('click',()=>{
+      if(playing&&idx===parseInt(item.el.getAttribute('data-p'))){ttsStop();return}
+      startFrom(parseInt(item.el.getAttribute('data-p')));
     });
   });
+}
+
+function brGroups(el){
+  const groups=[];let cur=[];
+  const walk=node=>{
+    Array.from(node.childNodes).forEach(ch=>{
+      if(ch.nodeType===Node.ELEMENT_NODE){
+        if(ch.tagName==='BR'){if(cur.length){groups.push(cur);cur=[]}}
+        else if(ch.classList&&ch.classList.contains('w')){cur.push(ch)}
+        else walk(ch);
+      }
+    });
+  };
+  walk(el);
+  if(cur.length)groups.push(cur);
+  if(!groups.length){
+    const all=el.querySelectorAll('span.w');
+    if(all.length)groups.push(Array.from(all));
+  }
+  return groups;
 }
 
 let currentWordEl=null;
@@ -680,9 +733,8 @@ ttsVoice.addEventListener('change',()=>{
 ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();startFrom(pos)}});
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='',ttsGeneration=0;
-let nextUrl=null;
+let nextUrl=null,edgeFailStreak=0,healEdge=false,healAttempts=0;
 let downloadingBook=false;
-let backendProbed=false;
 let ttsCachePromise=null;
 
 function getTTSCache(){
@@ -708,27 +760,16 @@ function updateEngineBadge(){
 }
 ttsVoice.addEventListener('change',updateEngineBadge);
 
-async function detectBackend(){
-  if(isPiperVoice(ttsVoice.value)){mode='edge';return}
-  if(backendProbed)return;
-  try{
-    const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'test',voice:'uk-UA-PolinaNeural',rate:'+0%'})});
-    if(r.ok||r.status===500){mode='edge';backendProbed=true;return}
-  }catch{}
-  mode='browser';
-  backendProbed=true;
-}
-
 async function startFrom(i){
   const gen=++ttsGeneration;
-  await detectBackend();
   if(gen!==ttsGeneration)return;
   ttsStop();
   idx=i;
   curVoice=ttsVoice.value||'uk-UA-PolinaNeural';
   curRate=ttsSpeed.value;
   if(gen!==ttsGeneration)return;
-  if(mode==='edge')playEdge();else readBr();
+  edgeFailStreak=0;healAttempts=0;mode='edge';
+  playEdge();
 }
 
 async function edgeSpeak(text,voice,rate){
@@ -740,12 +781,30 @@ async function edgeSpeak(text,voice,rate){
       if(hit)return URL.createObjectURL(await hit.blob());
     }catch{}
   }
-  const r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice,rate})});
-  if(!r.ok)throw new Error('TTS failed');
-  if(cache&&req){
-    try{await cache.put(req,r.clone())}catch{}
+  const body={text,voice,rate};
+  let attempt=0;
+  while(true){
+    let r;
+    try{
+      r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }catch(err){
+      attempt++;
+      if(attempt>=2)throw new Error('TTS_OFFLINE');
+      await new Promise(res=>setTimeout(res,400));
+      continue;
+    }
+    if(r.ok){
+      if(cache&&req){
+        try{await cache.put(req,r.clone())}catch{}
+      }
+      return URL.createObjectURL(await r.blob());
+    }
+    if(r.status===413)throw new Error('TTS_TOO_LONG');
+    // 429 / 5xx — тимчасово, пробуємо ще раз із відступом
+    attempt++;
+    if(attempt>=3)throw new Error('TTS_FAILED');
+    await new Promise(res=>setTimeout(res,700*attempt));
   }
-  return URL.createObjectURL(await r.blob());
 }
 
 async function playEdge(){
@@ -764,6 +823,7 @@ async function playEdge(){
     ttsAudioEl.onended=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();playEdge()};
     ttsAudioEl.onerror=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();playEdge()};
     await ttsAudioEl.play();playing=true;
+    edgeFailStreak=0;
     startWordHighlight(ttsAudioEl,idx);
     // попередньо готуємо наступний чанк — прибирає довгу паузу між абзацами
     if(idx+1<ttsChunks.length){
@@ -775,9 +835,28 @@ async function playEdge(){
       }).catch(()=>{});
     }
   }catch(e){
-    console.error(e);mode='browser';
+    if(gen!==ttsGeneration)return;
+    console.error('edge fail:',e);
+    if(e&&e.message==='TTS_TOO_LONG'){readBr();return}
+    if(e&&e.message==='TTS_OFFLINE'){
+      mode='browser';
+      document.getElementById('tts-eng').textContent='browser';
+      document.getElementById('tts-eng').classList.add('fb');
+      if(healAttempts<3){healAttempts++;healEdge=true;}
+      readBr();
+      return;
+    }
+    edgeFailStreak++;
+    // початкові збої — переповторюємо з паузою, а не падаємо в browser одразу
+    if(edgeFailStreak<=2){
+      setTimeout(()=>{if(gen===ttsGeneration)playEdge()},700*edgeFailStreak);
+      return;
+    }
+    mode='browser';
     document.getElementById('tts-eng').textContent='browser';
     document.getElementById('tts-eng').classList.add('fb');
+    // до 3 спроб кожного чанка вертатись на edge; далі читаємо browser доки новий старт
+    if(healAttempts<3){healAttempts++;healEdge=true;}
     readBr();
   }
 }
@@ -806,10 +885,16 @@ function readBr(){
       }
     };
   }
-  u.onend=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();readBr()};
-  u.onerror=e=>{if(!playing)return;if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();readBr()}};
+  u.onend=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();nextReadStep()};
+  u.onerror=e=>{if(!playing)return;if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();nextReadStep()}};
   speechSynthesis.speak(u);playing=true;
   document.getElementById('tts-st').textContent='🔊';
+}
+
+// наступний крок читання: якщо був фолбек на browser, пробуємо повернутись на edge
+function nextReadStep(){
+  if(healEdge){healEdge=false;mode='edge';playEdge();return}
+  readBr();
 }
 
 function ttsToggle(){

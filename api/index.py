@@ -263,5 +263,5 @@ def docs_delete(doc_id):
 
 
 if limiter is not None:
-    app.view_functions["tts_generate"] = limiter.limit("30/minute")(app.view_functions["tts_generate"])
+    app.view_functions["tts_generate"] = limiter.limit("120/minute")(app.view_functions["tts_generate"])
     app.view_functions["docs_upload"] = limiter.limit("10/minute")(app.view_functions["docs_upload"])
