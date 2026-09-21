@@ -46,6 +46,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Markdown syntax cleaned before TTS (no reading `#`, `|`, backticks, links, images)
 - Fallback to browser `speechSynthesis` API when backend unavailable (auto-recovers back to edge-tts)
 - Transient TTS errors (429 / 5xx / network) are retried with backoff instead of dropping to a bad voice
+- **Mobile-friendly**: autoplay policy handled by audio unlock on first tap, works on iOS Safari / Android Chrome
 - Audio caching by SHA-256 hash of (text + voice + rate + pitch)
 - Offline audio cache in browser Cache Storage (`preader_tts`) — repeat playback works without a network
 - Auto-cleanup of cached files older than 7 days + cache size cap (800 files)

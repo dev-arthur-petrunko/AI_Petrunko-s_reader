@@ -330,7 +330,7 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
   <button onclick="ttsStop()" title="Стоп">⏹</button>
 </div>
 
-<audio id="tts-audio" preload="auto"></audio>
+<audio id="tts-audio" preload="auto" playsinline webkit-playsinline></audio>
 
 <script>
 const LANGS=[
@@ -737,6 +737,34 @@ let nextUrl=null,edgeFailStreak=0,healEdge=false,healAttempts=0;
 let downloadingBook=false;
 let ttsCachePromise=null;
 
+function getSS(){
+  try{return window.speechSynthesis||null}catch(e){return null}
+}
+function ssCancel(){
+  const ss=getSS();
+  if(ss){try{ss.cancel()}catch(e){}}
+}
+let audioUnlocked=false;
+let sharedAC=null;
+function unlockAudio(){
+  if(audioUnlocked)return;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(AC){
+      if(!sharedAC)sharedAC=new AC();
+      if(sharedAC.state==='suspended')sharedAC.resume();
+      const buf=sharedAC.createBuffer(1,1,22050);
+      const src=sharedAC.createBufferSource();
+      src.buffer=buf;src.connect(sharedAC.destination);src.start(0);
+    }
+    audioUnlocked=true;
+  }catch(e){}
+}
+// мобільні браузери вимагають жест користувача для звуку — розблоковуємо на перший дотик
+document.addEventListener('touchstart',unlockAudio,true);
+document.addEventListener('touchend',unlockAudio,true);
+document.addEventListener('click',unlockAudio,true);
+
 function getTTSCache(){
   if(!('caches' in window))return null;
   if(!ttsCachePromise)ttsCachePromise=caches.open('preader_tts');
@@ -820,9 +848,17 @@ async function playEdge(){
     if(gen!==ttsGeneration)return;
     if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=url;
     ttsAudioEl.src=url;
+    if(ttsAudioEl.load)ttsAudioEl.load();
     ttsAudioEl.onended=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();playEdge()};
     ttsAudioEl.onerror=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();playEdge()};
-    await ttsAudioEl.play();playing=true;
+    try{await ttsAudioEl.play()}catch(perr){
+      // автоплей-політика мобільних: чекаємо жесту і пробуємо ще раз
+      console.warn('play() blocked on mobile:',perr);
+      if(gen!==ttsGeneration)return;
+      ttsAudioEl.play().then(()=>{if(gen!==ttsGeneration)return;playing=true;edgeFailStreak=0;startWordHighlight(ttsAudioEl,idx)}).catch(()=>{});
+      return;
+    }
+    playing=true;
     edgeFailStreak=0;
     startWordHighlight(ttsAudioEl,idx);
     // попередньо готуємо наступний чанк — прибирає довгу паузу між абзацами
@@ -862,7 +898,9 @@ async function playEdge(){
 }
 
 function readBr(){
-  speechSynthesis.cancel();
+  const ss=getSS();
+  if(!ss){alert('На цьому браузері немає голосових функцій');ttsStop();return}
+  ssCancel();
   if(idx>=ttsChunks.length){ttsStop();document.getElementById('tts-st').textContent='✓';document.getElementById('tpf').style.width='100%';return}
   highlightChunk(idx);
   document.getElementById('tts-btn').textContent='⏸ Пауза';
@@ -871,8 +909,9 @@ function readBr(){
   const rateMatch=curRate.match(/([+-]?\d+)/);
   u.rate=rateMatch?1+parseInt(rateMatch[1])/100:1;
   u.pitch=1;
-  const vs=speechSynthesis.getVoices();
-  const m=vs.find(v=>v.lang.startsWith(ttsLang.value));
+  let vs=[];
+  try{vs=ss.getVoices?ss.getVoices():[]}catch(e){}
+  const m=vs.find(v=>v.lang&&v.lang.startsWith(ttsLang.value));
   if(m)u.voice=m;
   const info=chunkWordCounts[idx];
   if(info){
@@ -887,7 +926,7 @@ function readBr(){
   }
   u.onend=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();nextReadStep()};
   u.onerror=e=>{if(!playing)return;if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();nextReadStep()}};
-  speechSynthesis.speak(u);playing=true;
+  ss.speak(u);playing=true;
   document.getElementById('tts-st').textContent='🔊';
 }
 
@@ -911,11 +950,13 @@ function ttsToggle(){
         startWordHighlight(ttsAudioEl,idx);
       }
     }else{
-      if(speechSynthesis.speaking&&!speechSynthesis.paused){
-        speechSynthesis.pause();
+      const ss=getSS();
+      if(!ss)return;
+      if(ss.speaking&&!ss.paused){
+        ss.pause();
         document.getElementById('tts-btn').textContent='▶ Далі';
       }else{
-        speechSynthesis.resume();
+        ss.resume();
         document.getElementById('tts-btn').textContent='⏸ Пауза';
       }
     }
@@ -923,7 +964,7 @@ function ttsToggle(){
 }
 
 function ttsStop(){
-  speechSynthesis.cancel();
+  ssCancel();
   ttsAudioEl.onended=null;ttsAudioEl.onerror=null;
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null}
@@ -943,14 +984,14 @@ function updateP(){
 }
 
 function ttsNext(){
-  if(idx<ttsChunks.length-1){ttsAudioEl.pause();speechSynthesis.cancel();idx++;updateP();startFrom(idx)}
+  if(idx<ttsChunks.length-1){ttsAudioEl.pause();ssCancel();idx++;updateP();startFrom(idx)}
 }
 function ttsPrev(){
-  if(idx>0){ttsAudioEl.pause();speechSynthesis.cancel();idx--;updateP();startFrom(idx)}
+  if(idx>0){ttsAudioEl.pause();ssCancel();idx--;updateP();startFrom(idx)}
 }
 function jumpToc(v){
   if(v===''||v===null)return;
-  ttsAudioEl.pause();speechSynthesis.cancel();
+  ttsAudioEl.pause();ssCancel();
   startFrom(parseInt(v));
 }
 
@@ -1036,8 +1077,13 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){e.preventDefault();ttsStop()}
 });
 
-speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
-speechSynthesis.getVoices();
+{
+  const ss0=getSS();
+  if(ss0){
+    ss0.onvoiceschanged=()=>{try{ss0.getVoices()}catch(e){}};
+    try{ss0.getVoices()}catch(e){}
+  }
+}
 
 function init(){
   const l=detectLang(editor.value||'');
