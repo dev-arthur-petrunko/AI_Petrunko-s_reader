@@ -469,7 +469,7 @@ function buildChunks(){
     if(!raw)return;
     const cleaned=cleanTTS(raw);
     if(!cleaned.trim())return;
-    if(!/[\p{L}\p{N}]/u.test(cleaned))return;
+    if(!/[A-Za-z0-9\u00C0-\u024F\u0400-\u04FF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0620-\u064A]/.test(cleaned))return;
     const start=wordOffset;
     wordOffset=splitChunkIntoWords(el,wordOffset);
     items.push({el,start});
