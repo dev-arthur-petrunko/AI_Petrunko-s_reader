@@ -594,17 +594,9 @@ function highlightChunk(i){
 
 function openReader(){
   const t=editor.value.trim();if(!t)return;
-  artEl.innerHTML=DOMPurify.sanitize(marked.parse(t),{ADD_TAGS:['code','pre'],ADD_ATTR:['class']});
-  artEl.querySelectorAll('pre code').forEach(b=>hljs.highlightElement(b));
-  buildChunks();
-  document.getElementById('input-screen').style.display='none';
-  document.getElementById('reading-screen').style.display='block';
-  document.getElementById('tts-bar').classList.add('on');
-  document.body.classList.add('reader-on');
-  window.scrollTo(0,0);
-  const l=detectLang(t);
+  // спершу мова/голос/інтерфейс — щоб навіть при повільному чи вдалому рендерингу великого тексту все працювало
+  const l=detectLang(t.slice(0,200000));
   document.getElementById('det-lang').textContent=l.f+' '+l.n;
-  // якщо користувач вже обрав голос, не скидати мову на автоматичну — це міняє голос сам
   const globalSaved=localStorage.getItem('chitala_voice');
   let savedLocale=null;
   if(globalSaved){
@@ -621,10 +613,37 @@ function openReader(){
   document.getElementById('lang-toggle').value=useLocale;
   populateVoices(useLocale);
   document.getElementById('word-cnt').textContent=t.split(/\s+/).filter(w=>w).length+' слів';
+  document.getElementById('input-screen').style.display='none';
+  document.getElementById('reading-screen').style.display='block';
+  document.getElementById('tts-bar').classList.add('on');
+  document.body.classList.add('reader-on');
+  window.scrollTo(0,0);
   try{
     localStorage.setItem('chitala_text',t.length<=1000000?t:t.slice(0,1000000));
   }catch(e){}
   applyReadSettings();
+  // важкий рендер окремо: не блокує показ екрана і має запасний варіант
+  setTimeout(()=>{
+    try{
+      artEl.innerHTML=DOMPurify.sanitize(marked.parse(t),{ADD_TAGS:['code','pre'],ADD_ATTR:['class']});
+      // підсвітка коду тільки для невеликих текстів — на великих книгах вона зависає
+      if(t.length<=150000){
+        let hl=0;
+        artEl.querySelectorAll('pre code').forEach(b=>{if(hl<20){hljs.highlightElement(b);hl++}});
+      }
+      buildChunks();
+    }catch(e){
+      console.error('render failed, fallback:',e);
+      try{
+        artEl.innerHTML='';
+        t.split(/\n{2,}/).forEach(part=>{
+          const ps=part.trim();if(!ps)return;
+          const p=document.createElement('p');p.textContent=ps;artEl.appendChild(p);
+        });
+        buildChunks();
+      }catch(e2){}
+    }
+  },0);
 }
 
 function closeReader(){
@@ -938,6 +957,7 @@ function nextReadStep(){
 }
 
 function ttsToggle(){
+  if(!playing&&!ttsChunks.length){setTimeout(()=>{if(ttsChunks.length&&!playing)startFrom(0)},80);return}
   if(playing){
     if(mode==='edge'){
       if(!ttsAudioEl.paused){
