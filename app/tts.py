@@ -113,12 +113,25 @@ def rate_to_length_scale(rate: str) -> float:
     return 1.0 - (percent / 100.0)
 
 
-async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str) -> str:
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tmp.close()
-    communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
-    await communicate.save(tmp.name)
-    return tmp.name
+async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str, attempts: int = 3) -> str:
+    """Синтез через edge-tts із повторними спробами (Microsoft інколи троттлить IP → 403/порожньо)."""
+    last_err: Optional[Exception] = None
+    for attempt in range(attempts):
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tmp.close()
+        try:
+            communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
+            await communicate.save(tmp.name)
+            if os.path.getsize(tmp.name) > 0:
+                return tmp.name
+            raise RuntimeError("edge-tts повернув порожній файл")
+        except Exception as e:
+            last_err = e
+            if os.path.exists(tmp.name):
+                os.unlink(tmp.name)
+            if attempt < attempts - 1:
+                await asyncio.sleep(0.6 * (attempt + 1))
+    raise last_err if last_err else RuntimeError("edge-tts не вдалося")
 
 
 def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[bytes, str]:
