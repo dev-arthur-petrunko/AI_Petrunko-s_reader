@@ -2,6 +2,14 @@
 
 Web app that converts Markdown into a beautifully formatted single-page site with high-quality TTS (Microsoft Neural voices via edge-tts + Piper TTS for Ukrainian) and click-to-read functionality.
 
+## Screenshots
+
+![Editor](screenshots/01-start.png)
+![Reading mode with player](screenshots/02-reading.png)
+![Tables](screenshots/03-table.png)
+![Code highlighting](screenshots/04-code.png)
+![Mobile](screenshots/05-mobile.png)
+
 ## Features
 
 ### Markdown Editor
@@ -129,6 +137,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 │   └── icon.svg           # PWA / favicon icon
 ├── piper_engine.py        # Piper TTS local engine (Ukrainian voices)
 ├── piper_voices/          # Downloaded .onnx models (gitignored)
+├── screenshots/           # Screenshots used in this README
 ├── tts_cache/             # Cached audio files (gitignored)
 ├── knowledge_base.db      # KB SQLite database (gitignored)
 ├── tests/
@@ -188,7 +197,7 @@ pytest tests/ -v
 
 ## Tech Stack
 
-- **Backend**: Python 3.11+, Flask 3.1, edge-tts 7.2, piper-tts >=1.4.2, flask-limiter 3.12
+- **Backend**: Python 3.11+, Flask 3.1, edge-tts >=7.3.1, piper-tts >=1.4.2, flask-limiter 3.12
 - **Document parsing**: pypdf (PDF), ebooklib + lxml (EPUB), lxml (FB2), mobi (MOBI/AZW3), python-docx (DOCX), odfpy (ODT), lxml (RTF/HTML)
 - **Frontend**: Vanilla JS, marked.js 4.3, highlight.js 11.9, DOMPurify 3.1, PWA (manifest + service worker)
 - **Fonts**: Inter (UI), JetBrains Mono (code), Merriweather (reading)
