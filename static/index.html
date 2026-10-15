@@ -749,7 +749,7 @@ ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();star
 })();
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='',ttsGeneration=0;
-let nextPlaylist=null,edgeFailStreak=0,healEdge=false,healAttempts=0;
+let preloaded={},edgeFailStreak=0,healEdge=false,healAttempts=0;
 let downloadingBook=false;
 let ttsCachePromise=null;
 
@@ -859,16 +859,33 @@ async function playEdge(){
     document.getElementById('tts-btn').textContent='⏸ Пауза';
     document.getElementById('tts-st').textContent=(idx+1)+'/'+ttsChunks.length;
     let pl;
-    if(nextPlaylist){pl=nextPlaylist;nextPlaylist=null;}
+    if(preloaded[idx]){pl=preloaded[idx];delete preloaded[idx];}
     else{pl={segs:languageSegments(ttsChunks[idx]||'')};}
+    // прибираємо застарілі попередньо завантажені чанки (idx, які вже минули)
+    for(const k in preloaded){if(+k<idx){revokePlaylist(preloaded[k]);delete preloaded[k];}}
     if(gen!==ttsGeneration)return;
     // передзавантаження наступного чанка — прибирає довгу паузу між абзацами
-    if(idx+1<ttsChunks.length){
-      playlistFor(idx+1).then(p=>{
-        if(gen===ttsGeneration){revokePlaylist(nextPlaylist);nextPlaylist=p;}
+    const target=idx+1;
+    if(target<ttsChunks.length){
+      playlistFor(target).then(p=>{
+        if(gen!==ttsGeneration){revokePlaylist(p);return;}
+        revokePlaylist(preloaded[target]);preloaded[target]=p;
       }).catch(()=>{});
     }
-    await playSegments(pl,idx,gen);
+    // відтворюємо сегменти; при збої посеред чанка — продовжуємо з невдалого сегмента, а не з початку
+    let startAt=0,segTries=0;
+    while(true){
+      try{await playSegments(pl,idx,gen,startAt);break;}
+      catch(e){
+        if(gen!==ttsGeneration)return;
+        if(e&&typeof e.resumeFrom==='number'&&segTries<2){
+          segTries++;startAt=e.resumeFrom;
+          await new Promise(r=>setTimeout(r,400*segTries));
+          continue;
+        }
+        throw e;
+      }
+    }
     if(gen!==ttsGeneration||!playing)return;
     stopWordHighlight();idx++;updateP();playEdge();
   }catch(e){
@@ -950,15 +967,18 @@ async function playlistFor(chunkIdx){
   return {urls,segs};
 }
 function revokePlaylist(pl){if(!pl||!pl.urls)return;pl.urls.forEach(u=>{try{URL.revokeObjectURL(u)}catch(e){}})}
+function revokePreloaded(){for(const k in preloaded){revokePlaylist(preloaded[k])}preloaded={}}
 // послідовне відтворення сегментів чанка з підсвіткою слів
-function playSegments(pl,chunkIdx,gen){
+function playSegments(pl,chunkIdx,gen,startAt){
+  startAt=startAt||0;
   return new Promise((resolve,reject)=>{
     const info=chunkWordCounts[chunkIdx];
     const segs=pl.segs||[];
     const urls=pl.urls?pl.urls.slice():new Array(segs.length).fill(null);
     // ліниве завантаження сегмента: граємо перший одразу, решту тягнемо під час відтворення
     const ensure=i=>urls[i]?Promise.resolve(urls[i]):edgeSpeak(segs[i].text.trim(),segs[i].voice,curRate).then(u=>{urls[i]=u;return u;});
-    let i=0,wordBase=0,stopped=false;
+    let i=startAt,wordBase=0,stopped=false;
+    for(let j=0;j<startAt;j++)wordBase+=segWordCount((segs[j]||{}).text);
     const done=()=>{if(!stopped){stopped=true;resolve()}};
     const next=()=>{
       if(gen!==ttsGeneration||i>=segs.length){done();return}
@@ -970,7 +990,9 @@ function playSegments(pl,chunkIdx,gen){
         if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=url;
         ttsAudioEl.src=url;
         if(ttsAudioEl.load)ttsAudioEl.load();
-        const advance=()=>{if(!playing){done();return}wordBase+=segWordCount(seg.text);cancelAnimationFrame(wordHighlightRAF);next()};
+        // захист від подвійного переходу: ended+error на одному сегменті не має пропускати сегмент
+        let consumed=false;
+        const advance=()=>{if(consumed)return;consumed=true;if(!playing){done();return}wordBase+=segWordCount(seg.text);cancelAnimationFrame(wordHighlightRAF);next()};
         ttsAudioEl.onended=advance;
         ttsAudioEl.onerror=advance;
         const se=wordEndTimes(seg.text||'',rateMultiplier(curRate));
@@ -995,7 +1017,12 @@ function playSegments(pl,chunkIdx,gen){
             ttsAudioEl.play().then(()=>{playing=true;edgeFailStreak=0}).catch(()=>{});
           });
         }else{playing=true;edgeFailStreak=0;}
-      }).catch(e=>{if(gen===ttsGeneration)reject(e);else done();});
+      }).catch(e=>{
+        if(gen!==ttsGeneration){done();return}
+        const msg=(e&&e.message)||'TTS_FAILED';
+        if(msg==='TTS_TOO_LONG'||msg==='TTS_OFFLINE'){reject(e);return}
+        const err=new Error(msg);err.resumeFrom=k;reject(err);
+      });
     };
     next();
   });
@@ -1071,7 +1098,7 @@ function ttsStop(){
   ttsAudioEl.onended=null;ttsAudioEl.onerror=null;
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null}
-  revokePlaylist(nextPlaylist);nextPlaylist=null;
+  revokePreloaded();
   playing=false;idx=0;
   stopWordHighlight();
   highlightChunk(-1);
