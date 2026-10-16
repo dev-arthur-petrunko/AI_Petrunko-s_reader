@@ -872,21 +872,11 @@ async function playEdge(){
         revokePlaylist(preloaded[target]);preloaded[target]=p;
       }).catch(()=>{});
     }
-    // відтворюємо сегменти; при збої посеред чанка — продовжуємо з невдалого сегмента, а не з початку
-    let startAt=0,segTries=0;
-    while(true){
-      try{await playSegments(pl,idx,gen,startAt);break;}
-      catch(e){
-        if(gen!==ttsGeneration)return;
-        if(e&&typeof e.resumeFrom==='number'&&segTries<2){
-          segTries++;startAt=e.resumeFrom;
-          await new Promise(r=>setTimeout(r,400*segTries));
-          continue;
-        }
-        throw e;
-      }
-    }
+    // відтворюємо сегменти; проблемні сегменти пропускаються всередині playSegments,
+    // щоб абзац не перечитувався нескінченно
+    await playSegments(pl,idx,gen);
     if(gen!==ttsGeneration||!playing)return;
+    edgeFailStreak=0;
     stopWordHighlight();idx++;updateP();playEdge();
   }catch(e){
     if(gen!==ttsGeneration)return;
@@ -901,6 +891,15 @@ async function playEdge(){
       return;
     }
     edgeFailStreak++;
+    // жоден сегмент абзацу не згенерувався — одразу фолбек на голос браузера (без повтору абзацу)
+    if(e&&e.allFailed){
+      mode='browser';
+      document.getElementById('tts-eng').textContent='browser';
+      document.getElementById('tts-eng').classList.add('fb');
+      if(healAttempts<3){healAttempts++;healEdge=true;}
+      readBr();
+      return;
+    }
     // початкові збої — переповторюємо з паузою, а не падаємо в browser одразу
     if(edgeFailStreak<=2){
       setTimeout(()=>{if(gen===ttsGeneration)playEdge()},400*edgeFailStreak);
@@ -938,6 +937,8 @@ function enWordsOn(){
 }
 function segWordCount(t){return t?t.split(/\s+/).filter(w=>w).length:0}
 // розбиває чанк на сегменти: англійські слова читає англійським голосом, решту — основним
+// сусідні англійські слова (розділені пробілами/пунктуацією) об'єднуємо в один сегмент —
+// це різко зменшує кількість запитів і прибирає «зупинки» на довгих англійських фразах
 function languageSegments(text){
   const mainVoice=curVoice;
   const single=[{text,voice:mainVoice}];
@@ -947,16 +948,24 @@ function languageSegments(text){
   const enVoice=englishVoiceFor(mainVoice);
   if(!enVoice||enVoice===mainVoice)return single;
   const re=/[A-Za-z][A-Za-z'’]*(?:-[A-Za-z][A-Za-z'’]*)*/g;
-  const segs=[];let last=0,m,split=false;
+  const groups=[];let m;
   while((m=re.exec(text))){
-    const run=m[0];
-    if(run.replace(/[^A-Za-z]/g,'').length<2)continue;
-    if(m.index>last){segs.push({text:text.slice(last,m.index),voice:mainVoice});}
-    segs.push({text:run,voice:enVoice});
-    last=m.index+run.length;split=true;
+    const s=m.index,e=m.index+m[0].length;
+    const last=groups[groups.length-1];
+    // новий сегмент, якщо між словами є літери іншої мови (кирилиця тощо)
+    if(!last||/\p{L}/u.test(text.slice(last.end,s))){groups.push({start:s,end:e});}
+    else{last.end=e;}
   }
-  if(!split)return single;
-  if(last<text.length){segs.push({text:text.slice(last),voice:mainVoice});}
+  let letters=0;
+  for(const g of groups)letters+=text.slice(g.start,g.end).replace(/[^A-Za-z]/g,'').length;
+  if(!groups.length||letters<2)return single;
+  const segs=[];let pos=0;
+  for(const g of groups){
+    if(g.start>pos)segs.push({text:text.slice(pos,g.start),voice:mainVoice});
+    segs.push({text:text.slice(g.start,g.end),voice:enVoice});
+    pos=g.end;
+  }
+  if(pos<text.length)segs.push({text:text.slice(pos),voice:mainVoice});
   const out=segs.filter(s=>s.text&&s.text.trim());
   return out.length?out:single;
 }
@@ -977,15 +986,17 @@ function playSegments(pl,chunkIdx,gen,startAt){
     const urls=pl.urls?pl.urls.slice():new Array(segs.length).fill(null);
     // ліниве завантаження сегмента: граємо перший одразу, решту тягнемо під час відтворення
     const ensure=i=>urls[i]?Promise.resolve(urls[i]):edgeSpeak(segs[i].text.trim(),segs[i].voice,curRate).then(u=>{urls[i]=u;return u;});
-    let i=startAt,wordBase=0,stopped=false;
+    // додаткові спроби завантажити сегмент перед тим, як пропустити його
+    const load=i=>{let left=2;const go=()=>ensure(i).catch(e=>{if(left-->0)return new Promise(r=>setTimeout(r,350)).then(go);throw e;});return go();};
+    let i=startAt,wordBase=0,stopped=false,failed=0;
     for(let j=0;j<startAt;j++)wordBase+=segWordCount((segs[j]||{}).text);
     const done=()=>{if(!stopped){stopped=true;resolve()}};
     const next=()=>{
       if(gen!==ttsGeneration||i>=segs.length){done();return}
       const k=i++;
-      ensure(k).then(url=>{
+      load(k).then(url=>{
         if(gen!==ttsGeneration){done();return}
-        if(i<segs.length)ensure(i).catch(()=>{});
+        if(i<segs.length)load(i).catch(()=>{});
         const seg=segs[k];
         if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=url;
         ttsAudioEl.src=url;
@@ -1011,17 +1022,21 @@ function playSegments(pl,chunkIdx,gen,startAt){
         wordHighlightRAF=requestAnimationFrame(tick);
         const p=ttsAudioEl.play();
         if(p&&p.then){
-          p.then(()=>{playing=true;edgeFailStreak=0}).catch(perr=>{
+          p.then(()=>{playing=true}).catch(perr=>{
             console.warn('play() blocked on mobile:',perr);
             if(gen!==ttsGeneration)return;
-            ttsAudioEl.play().then(()=>{playing=true;edgeFailStreak=0}).catch(()=>{});
+            ttsAudioEl.play().then(()=>{playing=true}).catch(()=>{});
           });
-        }else{playing=true;edgeFailStreak=0;}
+        }else{playing=true;}
       }).catch(e=>{
         if(gen!==ttsGeneration){done();return}
         const msg=(e&&e.message)||'TTS_FAILED';
         if(msg==='TTS_TOO_LONG'||msg==='TTS_OFFLINE'){reject(e);return}
-        const err=new Error(msg);err.resumeFrom=k;reject(err);
+        failed++;
+        // якщо не вдалося жодного сегмента — віддаємо помилку назовні (фолбек на голос браузера)
+        if(failed>=segs.length){const err=new Error(msg);err.allFailed=true;reject(err);return}
+        // інакше пропускаємо проблемний сегмент і читаємо далі, щоб не зациклитись
+        if(i<segs.length)next();else done();
       });
     };
     next();
