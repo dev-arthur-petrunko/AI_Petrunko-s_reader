@@ -840,8 +840,10 @@ async function edgeSpeak(text,voice,rate){
         r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ac.signal});
       }finally{clearTimeout(timer);}
     }catch(err){
+      // мережа недоступна або таймаут — не одне і те ж, що 500 від сервера:
+      // даємо миттєвий фолбек у голос браузера (TTS_OFFLINE)
       attempt++;
-      if(attempt>=2)throw new Error('TTS_FAILED');
+      if(attempt>=2)throw new Error('TTS_OFFLINE');
       await new Promise(res=>setTimeout(res,500));
       continue;
     }
