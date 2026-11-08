@@ -834,8 +834,9 @@ async function edgeSpeak(text,voice,rate){
     let r;
     try{
       // таймаут на кожен запит — завислий сервер не має «заморожувати» читання
+      // (бюджет: 8с × 2 спроби ≈ 16с максимум до фолбека, а не 70+)
       const ac=new AbortController();
-      const timer=setTimeout(()=>ac.abort(),12000);
+      const timer=setTimeout(()=>ac.abort(),8000);
       try{
         r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ac.signal});
       }finally{clearTimeout(timer);}
@@ -1041,8 +1042,9 @@ function playSegments(L,chunkIdx,gen,startAt){
     const segs=L.segs||[];
     // сегменти беруться зі спільного завантажувача — без дубльованих запитів
     const ensure=i=>segUrl(L,i);
-    // додаткові спроби завантажити сегмент перед тим, як пропустити його
-    const load=i=>{let left=2;const go=()=>ensure(i).catch(e=>{if(left-->0)return new Promise(r=>setTimeout(r,350)).then(go);throw e;});return go();};
+    // додаткові спроби завантажити сегмент перед тим, як пропустити його.
+    // TTS_OFFLINE не ретраїмо — завислий сервер не оживе від повтору, це лише відтермінувало б фолбек
+    const load=i=>{let left=1;const go=()=>ensure(i).catch(e=>{if(e&&e.message==='TTS_OFFLINE')throw e;if(left-->0)return new Promise(r=>setTimeout(r,350)).then(go);throw e;});return go();};
     let i=startAt,wordBase=0,stopped=false,failed=0;
     for(let j=0;j<startAt;j++)wordBase+=segWordCount((segs[j]||{}).text);
     const done=()=>{if(!stopped){stopped=true;resolve()}};
