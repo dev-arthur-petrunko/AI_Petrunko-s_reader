@@ -498,7 +498,10 @@ function buildChunks(){
       });
       if(curWords>=12)flush();
     });
-    flush();
+    // комірки таблиці не розриваємо після кожної — з них виходили десятки крихітних
+    // чанків = сотні запитів TTS, через що читання довго стартувало і «пропускало» текст
+    const tag=item.el.tagName.toUpperCase();
+    if(tag!=='TD'&&tag!=='TH')flush();
   });
   flush();
   if(!ttsChunks.length)return;
@@ -830,11 +833,16 @@ async function edgeSpeak(text,voice,rate){
   while(true){
     let r;
     try{
-      r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      // таймаут на кожен запит — завислий сервер не має «заморожувати» читання
+      const ac=new AbortController();
+      const timer=setTimeout(()=>ac.abort(),12000);
+      try{
+        r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ac.signal});
+      }finally{clearTimeout(timer);}
     }catch(err){
       attempt++;
-      if(attempt>=2)throw new Error('TTS_OFFLINE');
-      await new Promise(res=>setTimeout(res,400));
+      if(attempt>=2)throw new Error('TTS_FAILED');
+      await new Promise(res=>setTimeout(res,500));
       continue;
     }
     if(r.ok){
@@ -845,7 +853,8 @@ async function edgeSpeak(text,voice,rate){
     }
     if(r.status===413)throw new Error('TTS_TOO_LONG');
     if(r.status===429){attempt++;if(attempt>=3)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,700*attempt));continue;}
-    if(r.status>=500){attempt++;if(attempt>=2)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,500));continue;}
+    if(r.status===504){attempt++;if(attempt>=3)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,600*attempt));continue;}
+    if(r.status>=500){attempt++;if(attempt>=3)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,500));continue;}
     // решта 4xx — постійна помилка, не ретраїмо
     throw new Error('TTS_FAILED');
   }

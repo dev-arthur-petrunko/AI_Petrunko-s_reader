@@ -113,24 +113,35 @@ def rate_to_length_scale(rate: str) -> float:
     return 1.0 - (percent / 100.0)
 
 
-async def _generate_edge_audio(text: str, voice: str, rate: str, pitch: str, attempts: int = 3) -> str:
-    """Синтез через edge-tts із повторними спробами (Microsoft інколи троттлить IP → 403/порожньо)."""
+async def _generate_edge_audio(
+    text: str, voice: str, rate: str, pitch: str, attempts: int = 3, attempt_timeout: float = 15.0
+) -> str:
+    """Синтез через edge-tts із повторними спробами (Microsoft інколи троттлить IP → 403/порожньо).
+
+    Кожна спроба обмежена timeout, щоб зависання websocket не блокувало запит назавжди —
+    інакше відтворення «зависає» і не починає читати далі.
+    """
     last_err: Optional[Exception] = None
     for attempt in range(attempts):
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         tmp.close()
         try:
             communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
-            await communicate.save(tmp.name)
+            await asyncio.wait_for(communicate.save(tmp.name), timeout=attempt_timeout)
             if os.path.getsize(tmp.name) > 0:
                 return tmp.name
             raise RuntimeError("edge-tts повернув порожній файл")
+        except asyncio.TimeoutError:
+            last_err = RuntimeError(f"edge-tts перевищив час очікування ({attempt_timeout:.0f}с)")
         except Exception as e:
             last_err = e
-            if os.path.exists(tmp.name):
+        if os.path.exists(tmp.name):
+            try:
                 os.unlink(tmp.name)
-            if attempt < attempts - 1:
-                await asyncio.sleep(0.6 * (attempt + 1))
+            except OSError:
+                pass
+        if last_err and attempt < attempts - 1:
+            await asyncio.sleep(0.6 * (attempt + 1))
     raise last_err if last_err else RuntimeError("edge-tts не вдалося")
 
 

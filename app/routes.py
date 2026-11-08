@@ -57,7 +57,10 @@ def tts_generate() -> Response:
     except RuntimeError as e:
         logger.error("TTS error: %s", e, exc_info=True)
         msg = str(e).lower()
-        status = 503 if ("not installed" in msg or "not found" in msg) else 500
+        if "перевищив час очікування" in msg:
+            status = 504  # таймаут edge-tts — клієнт має зробити ще спробу/фолбек
+        else:
+            status = 503 if ("not installed" in msg or "not found" in msg) else 500
         return Response("TTS generation failed", status=status)
 
 
@@ -145,8 +148,10 @@ def create_app() -> "Flask":
         from flask_limiter import Limiter
         from flask_limiter.util import get_remote_address
 
-        limiter = Limiter(get_remote_address, app=app, default_limits=["60/minute"])
-        api.route = limiter.limit("120/minute")(api.route)  # type: ignore
+        # Під час читання довгого тексту клієнт робить по кілька запитів на абзац
+        # (основний голос + англійські сегменти + попереднє завантаження).
+        # 60/minute виявилося замало — клієнт отримував 429 і «пропускав» частину тексту.
+        Limiter(get_remote_address, app=app, default_limits=["600/minute"])
     except ImportError:
         pass
 
