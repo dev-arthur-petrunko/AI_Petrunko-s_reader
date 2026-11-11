@@ -144,19 +144,13 @@ def create_app() -> "Flask":
     app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
-    try:
-        from flask_limiter import Limiter
-        from flask_limiter.util import get_remote_address
-
-        # Під час читання довгого тексту клієнт робить по кілька запитів на абзац
-        # (основний голос + англійські сегменти + попереднє завантаження).
-        # 60/minute виявилося замало — клієнт отримував 429 і «пропускав» частину тексту.
-        Limiter(get_remote_address, app=app, default_limits=["600/minute"])
-    except ImportError:
-        pass
-
     app.register_blueprint(api)
     cleanup_cache()
+
+    # єдиний ліміт для локального сервера та Vercel (app.limits)
+    from app.limits import apply_limits
+
+    apply_limits(app)
 
     try:
         from app.database import init_db, cleanup_stale

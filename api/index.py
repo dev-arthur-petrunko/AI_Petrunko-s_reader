@@ -23,13 +23,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
-try:
-    from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
+from app.limits import apply_limits
 
-    limiter = Limiter(get_remote_address, app=app, default_limits=["60/minute"])
-except ImportError:
-    limiter = None
+# єдиний ліміт для локального сервера та Vercel (раніше тут було 60/minute,
+# через що читання таблиць добивалося до 429 і відкатувалося у голос браузера)
+limiter = apply_limits(app)
 
 
 def is_valid_voice(voice: str) -> bool:
@@ -123,7 +121,10 @@ def tts_generate() -> Response:
     except Exception as e:
         logger.error("TTS error: %s", e, exc_info=True)
         msg = str(e).lower()
-        status = 503 if ("not installed" in msg or "not found" in msg) else 500
+        if "перевищив час очікування" in msg:
+            status = 504  # таймаут edge-tts — клієнт зробить ще спроби/фолбек
+        else:
+            status = 503 if ("not installed" in msg or "not found" in msg) else 500
         return Response("TTS generation failed", status=status)
 
 
@@ -262,6 +263,4 @@ def docs_delete(doc_id):
     return {"deleted": deleted} if deleted else (Response("Not found", status=404))
 
 
-if limiter is not None:
-    app.view_functions["tts_generate"] = limiter.limit("120/minute")(app.view_functions["tts_generate"])
-    app.view_functions["docs_upload"] = limiter.limit("10/minute")(app.view_functions["docs_upload"])
+# Ліміти накладено у app.limits.apply_limits при створенні застосунку.
