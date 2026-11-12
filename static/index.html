@@ -1166,6 +1166,9 @@ function readBr(){
   ssCancel();
   // припиняємо гру edge-аудіо, інакше доріжка edge продовжує грати паралельно
   stopEdgeAudio();
+  // скидаємо прапорець паузи: ми вже в режимі браузера, після повернення на edge
+  // він має стартувати одразу, а не чекати зайвого натискання паузи
+  ttsPaused=false;
   if(idx>=ttsChunks.length){ttsStop();document.getElementById('tts-st').textContent='✓';document.getElementById('tpf').style.width='100%';return}
   highlightChunk(idx);
   document.getElementById('tts-btn').textContent='⏸ Пауза';
