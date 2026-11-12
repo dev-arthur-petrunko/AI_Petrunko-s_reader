@@ -61,6 +61,31 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Auto-cleanup of cached files older than 7 days + cache size cap (800 files)
 - Word highlighting paced by word length and speed, so longer words are highlighted proportionally longer
 
+### Player reliability (pause, voice, paragraph flow)
+
+The reader has two engines — the edge-tts stream over `<audio>` and, as a fallback,
+the browser's `speechSynthesis`. The player treats the boundary between paragraphs
+as a first-class state, so the engine handoff never leaves two things talking at once:
+
+- **Pause that actually holds.** Pausing sets an explicit `ttsPaused` flag instead of
+  relying on `audio.paused`. A segment that finishes downloading while paused no longer
+  auto-plays (its `play()` call is gated on the flag), so the position freezes where the
+  user left it and resume continues from that exact point.
+- **One voice at a time.** On the fallback path, the edge-tts audio is stopped before
+  `speechSynthesis.speak()` is issued, and the edge playback chain is cancelled by mode
+  gate — previously both tracks could overlap, which was the "scary voice". Browser voice
+  selection is matched by locale (exact `uk-UA`, then base `uk`) from a `getVoices()`
+  cache instead of falling back to whatever default voice the browser picked.
+- **No lost paragraphs on timeout.** A per-request timeout now raises `TTS_TIMEOUT`
+  (distinct from `TTS_OFFLINE`), and the retry resumes at the exact segment that timed
+  out rather than replaying the whole paragraph — and a slow request no longer flips the
+  engine to the browser voice. Trailing punctuation is never split into its own segment.
+- **Bounded browser fallback.** `speechSynthesis` utterances carry a watchdog (text-length
+  estimate) so a swallowed `onend` can't stall paragraph progression, and generation
+  tokens prevent stale callbacks from resuming an older passage.
+
+See `playEdge`, `playSegments`, `readBr`, `edgeSpeak` in `static/index.html`.
+
 ### Piper TTS (Local Ukrainian Voices)
 - **Piper** engine — fully local, free, no API keys, no external server calls
 - 4 Ukrainian voice models: 3 speakers from `ukrainian-tts-medium` + compact `lada` model

@@ -754,6 +754,9 @@ ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();star
 })();
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='',ttsGeneration=0;
+// окремий прапорець паузи: playing=true означає «читання активне», а ttsPaused — «користувач натиснув паузу»
+// (без нього завантажений наступний сегмент одразу викликав play() і пауза «слітала»)
+let ttsPaused=false;
 let chunkLoaders={},edgeFailStreak=0,healEdge=false,healAttempts=0;
 // покоління браузерного читання: прибирає накладені репліки (два голоси) і «завислі» onend
 let brGen=0,brWatch=0;
@@ -851,7 +854,7 @@ async function startFrom(i){
   curVoice=ttsVoice.value||'uk-UA-PolinaNeural';
   curRate=ttsSpeed.value;
   if(gen!==ttsGeneration)return;
-  edgeFailStreak=0;healAttempts=0;mode='edge';
+  edgeFailStreak=0;healAttempts=0;mode='edge';ttsPaused=false;
   playEdge();
 }
 
@@ -870,18 +873,19 @@ async function edgeSpeak(text,voice,rate){
     let r;
     try{
       // таймаут на кожен запит — завислий сервер не має «заморожувати» читання
-      // (бюджет: 8с × 2 спроби ≈ 16с максимум до фолбека, а не 70+)
+      // (бюджет: 8с × 2 спроби ≈ 16с максимум до рішення, а не 70+)
       const ac=new AbortController();
       const timer=setTimeout(()=>ac.abort(),8000);
       try{
         r=await fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ac.signal});
       }finally{clearTimeout(timer);}
     }catch(err){
-      // мережа недоступна або таймаут — не одне і те ж, що 500 від сервера:
-      // даємо миттєвий фолбек у голос браузера (TTS_OFFLINE)
       attempt++;
-      if(attempt>=2)throw new Error('TTS_OFFLINE');
-      await new Promise(res=>setTimeout(res,500));
+      // таймаут (AbortError) НЕ рівний «мережа зникла»: повільний запит на таблиці
+      // не має миттєво перемикати голос на браузерний — ретраїмо, а відкат лише коли все падає
+      const isTimeout=err&&err.name==='AbortError';
+      if(attempt>=2)throw new Error(isTimeout?'TTS_TIMEOUT':'TTS_OFFLINE');
+      await new Promise(res=>setTimeout(res,500*attempt));
       continue;
     }
     if(r.ok){
@@ -892,14 +896,14 @@ async function edgeSpeak(text,voice,rate){
     }
     if(r.status===413)throw new Error('TTS_TOO_LONG');
     if(r.status===429){attempt++;if(attempt>=3)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,700*attempt));continue;}
-    if(r.status===504){attempt++;if(attempt>=3)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,600*attempt));continue;}
+    if(r.status===504){attempt++;if(attempt>=3)throw new Error('TTS_TIMEOUT');await new Promise(res=>setTimeout(res,600*attempt));continue;}
     if(r.status>=500){attempt++;if(attempt>=3)throw new Error('TTS_FAILED');await new Promise(res=>setTimeout(res,500));continue;}
     // решта 4xx — постійна помилка, не ретраїмо
     throw new Error('TTS_FAILED');
   }
 }
 
-async function playEdge(){
+async function playEdge(startAt=0){
   const gen=ttsGeneration;
   // прибираємо «залишкову» мову браузера після фолбека і синхронізуємо бейдж
   ssCancel();
@@ -918,7 +922,7 @@ async function playEdge(){
     if(target<ttsChunks.length)preloadChunk(target);
     // відтворюємо сегменти; проблемні сегменти пропускаються всередині playSegments,
     // щоб абзац не перечитувався нескінченно
-    await playSegments(L,idx,gen);
+    await playSegments(L,idx,gen,startAt);
     if(gen!==ttsGeneration||!playing)return;
     edgeFailStreak=0;
     revokeLoader(idx);
@@ -928,6 +932,20 @@ async function playEdge(){
     console.error('edge fail:',e);
     if(e&&e.message==='TTS_TOO_LONG'){mode='browser';updateEngineBadge();readBr();return}
     if(e&&e.message==='TTS_OFFLINE'){
+      mode='browser';updateEngineBadge();
+      if(healAttempts<3){healAttempts++;healEdge=true;}
+      readBr();
+      return;
+    }
+    // таймаут конкретного сегмента (повільна таблиця/великий абзац):
+    // перечитуємо ЛИШЕ починаючи з невдалого сегмента — голос НЕ змінюється,
+    // вже прочитане не повторюється. Ліміт спроб — щоб не зациклитись.
+    if(e&&e.message==='TTS_TIMEOUT'&&typeof e.resumeFrom==='number'){
+      edgeFailStreak++;
+      if(edgeFailStreak<=3){
+        setTimeout(()=>{if(gen===ttsGeneration)playEdge(e.resumeFrom)},600*edgeFailStreak);
+        return;
+      }
       mode='browser';updateEngineBadge();
       if(healAttempts<3){healAttempts++;healEdge=true;}
       readBr();
@@ -1113,11 +1131,14 @@ function playSegments(L,chunkIdx,gen,startAt){
           wordHighlightRAF=requestAnimationFrame(tick);
         };
         wordHighlightRAF=requestAnimationFrame(tick);
+        // НЕ запускаємо сегмент, якщо користувач поставив паузу —
+        // інакше щойно завантажений наступний сегмент «слітав» паузу (sound going on)
+        if(ttsPaused){return;}
         const p=ttsAudioEl.play();
         if(p&&p.then){
-          p.then(()=>{playing=true}).catch(perr=>{
+          p.then(()=>{if(gen!==ttsGeneration)return;playing=true}).catch(perr=>{
             console.warn('play() blocked on mobile:',perr);
-            if(gen!==ttsGeneration)return;
+            if(gen!==ttsGeneration||ttsPaused)return;
             ttsAudioEl.play().then(()=>{playing=true}).catch(()=>{});
           });
         }else{playing=true;}
@@ -1125,6 +1146,9 @@ function playSegments(L,chunkIdx,gen,startAt){
         if(gen!==ttsGeneration){done();return}
         const msg=(e&&e.message)||'TTS_FAILED';
         if(msg==='TTS_TOO_LONG'||msg==='TTS_OFFLINE'){reject(e);return}
+        // таймаут конкретного сегмента: відомо, який саме не встиг —
+        // зовні перечитуємо ЛИШЕ починаючи з нього (без повтору вже прочитаного)
+        if(msg==='TTS_TIMEOUT'){const err=new Error(msg);err.resumeFrom=k;reject(err);return}
         failed++;
         // якщо не вдалося жодного сегмента — віддаємо помилку назовні (фолбек на голос браузера)
         if(failed>=segs.length){const err=new Error(msg);err.allFailed=true;reject(err);return}
@@ -1201,11 +1225,13 @@ function ttsToggle(){
   if(!playing&&!ttsChunks.length){setTimeout(()=>{if(ttsChunks.length&&!playing)startFrom(0)},80);return}
   if(playing){
     if(mode==='edge'){
-      if(!ttsAudioEl.paused){
+      if(!ttsPaused){
+        ttsPaused=true;
         ttsAudioEl.pause();
         document.getElementById('tts-btn').textContent='▶ Далі';
         document.getElementById('tts-st').textContent='⏸';
       }else{
+        ttsPaused=false;
         ttsAudioEl.play();
         document.getElementById('tts-btn').textContent='⏸ Пауза';
       }
@@ -1229,7 +1255,7 @@ function ttsStop(){
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null}
   revokeAllLoaders();
-  playing=false;idx=0;
+  playing=false;idx=0;ttsPaused=false;
   stopWordHighlight();
   highlightChunk(-1);
   document.getElementById('tts-btn').textContent='▶ Читати';
