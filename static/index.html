@@ -656,6 +656,8 @@ const ttsSpeed=document.getElementById('tts-speed');
 
 LANGS.forEach(l=>{const o=document.createElement('option');o.value=l.c;o.textContent=l.f+' '+l.n;ttsLang.appendChild(o)});
 ttsLang.addEventListener('change',()=>{populateVoices(ttsLang.value);document.getElementById('lang-toggle').value=ttsLang.value;saveVoicePref()});
+// заздалегідь завантажуємо голоси браузера — без цього фолбек брав голос за замовчуванням
+initBrowserVoices();
 
 const allVoices={
   "uk-UA":[{"name":"uk-UA-OstapNeural","gender":"Male"},{"name":"uk-UA-PolinaNeural","gender":"Female"}],
@@ -753,6 +755,8 @@ ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();star
 
 let mode='edge',playing=false,idx=0,blobUrl=null,curVoice='',curRate='',ttsGeneration=0;
 let chunkLoaders={},edgeFailStreak=0,healEdge=false,healAttempts=0;
+// покоління браузерного читання: прибирає накладені репліки (два голоси) і «завислі» onend
+let brGen=0,brWatch=0;
 let downloadingBook=false;
 let ttsCachePromise=null;
 
@@ -761,7 +765,40 @@ function getSS(){
 }
 function ssCancel(){
   const ss=getSS();
+  brGen++;              // нова репліка «перекриває» усі попередні виклики наступних кроків
+  clearTimeout(brWatch); // знімаємо сторожа від завислої репліки
   if(ss){try{ss.cancel()}catch(e){}}
+}
+// зупиняємо аудіо edge-tts: викликається при переході на голос браузера,
+// інакше доріжка edge ще грає паралельно зі speechSynthesis — два голоси одночасно
+function stopEdgeAudio(){
+  ttsAudioEl.onended=null;ttsAudioEl.onerror=null;
+  ttsAudioEl.pause();ttsAudioEl.src='';
+  if(blobUrl){try{URL.revokeObjectURL(blobUrl)}catch(e){}blobUrl=null}
+}
+// голоси браузера для фолбека: перший getVoices() часто порожній,
+// тому тримаємо кеш і оновлюємо на voiceschanged (інтервалом перші ~6с)
+let browserVoices=[];
+function refreshBrowserVoices(){
+  try{const ss=getSS();if(ss&&ss.getVoices){const v=ss.getVoices();if(v&&v.length)browserVoices=v;}}catch(e){}
+}
+function initBrowserVoices(){
+  refreshBrowserVoices();
+  const ss=getSS();
+  if(ss&&ss.addEventListener){try{ss.addEventListener('voiceschanged',refreshBrowserVoices)}catch(e){}}
+  let n=0;const iv=setInterval(()=>{refreshBrowserVoices();if(browserVoices.length||++n>20)clearInterval(iv);},300);
+}
+// підбираємо голос саме під мову: точний збіг (uk-UA) → базова мова (uk)
+// без цього читання брало голос за замовчуванням → незрозумілий/зіпсований голос
+function pickBrowserVoice(lang){
+  if(!browserVoices.length)refreshBrowserVoices();
+  if(!browserVoices.length||!lang)return null;
+  const norm=v=>String(v.lang||'').replace('_','-');
+  const exact=String(lang).replace('_','-');
+  const base=exact.split('-')[0];
+  return browserVoices.find(v=>norm(v)===exact)
+    || browserVoices.find(v=>norm(v).split('-')[0]===base)
+    || null;
 }
 let audioUnlocked=false;
 let sharedAC=null;
@@ -799,11 +836,10 @@ function isPiperVoice(v){return v&&v.startsWith('piper:')}
 
 function updateEngineBadge(){
   const el=document.getElementById('tts-eng');
-  if(isPiperVoice(ttsVoice.value)){
-    el.textContent='Piper (local)';el.classList.remove('fb');el.style.background='rgba(59,130,246,.15)';el.style.color='#3b82f6';
-  }else{
-    el.textContent='edge-tts';el.classList.remove('fb');el.style.background='';el.style.color='';
-  }
+  const clear=()=>{el.classList.remove('fb');el.style.background='';el.style.color='';};
+  if(mode==='browser'){el.textContent='browser';el.classList.add('fb');el.style.background='';el.style.color='';return;}
+  if(isPiperVoice(ttsVoice.value)){clear();el.textContent='Piper (local)';el.style.background='rgba(59,130,246,.15)';el.style.color='#3b82f6';}
+  else{clear();el.textContent='edge-tts';}
 }
 ttsVoice.addEventListener('change',updateEngineBadge);
 
@@ -865,6 +901,9 @@ async function edgeSpeak(text,voice,rate){
 
 async function playEdge(){
   const gen=ttsGeneration;
+  // прибираємо «залишкову» мову браузера після фолбека і синхронізуємо бейдж
+  ssCancel();
+  updateEngineBadge();
   if(idx>=ttsChunks.length){ttsStop();document.getElementById('tts-st').textContent='✓';document.getElementById('tpf').style.width='100%';return}
   try{
     highlightChunk(idx);
@@ -887,11 +926,9 @@ async function playEdge(){
   }catch(e){
     if(gen!==ttsGeneration)return;
     console.error('edge fail:',e);
-    if(e&&e.message==='TTS_TOO_LONG'){readBr();return}
+    if(e&&e.message==='TTS_TOO_LONG'){mode='browser';updateEngineBadge();readBr();return}
     if(e&&e.message==='TTS_OFFLINE'){
-      mode='browser';
-      document.getElementById('tts-eng').textContent='browser';
-      document.getElementById('tts-eng').classList.add('fb');
+      mode='browser';updateEngineBadge();
       if(healAttempts<3){healAttempts++;healEdge=true;}
       readBr();
       return;
@@ -899,9 +936,7 @@ async function playEdge(){
     edgeFailStreak++;
     // жоден сегмент абзацу не згенерувався — одразу фолбек на голос браузера (без повтору абзацу)
     if(e&&e.allFailed){
-      mode='browser';
-      document.getElementById('tts-eng').textContent='browser';
-      document.getElementById('tts-eng').classList.add('fb');
+      mode='browser';updateEngineBadge();
       if(healAttempts<3){healAttempts++;healEdge=true;}
       readBr();
       return;
@@ -911,9 +946,7 @@ async function playEdge(){
       setTimeout(()=>{if(gen===ttsGeneration)playEdge()},400*edgeFailStreak);
       return;
     }
-    mode='browser';
-    document.getElementById('tts-eng').textContent='browser';
-    document.getElementById('tts-eng').classList.add('fb');
+    mode='browser';updateEngineBadge();
     // до 3 спроб кожного чанка вертатись на edge; далі читаємо browser доки новий старт
     if(healAttempts<3){healAttempts++;healEdge=true;}
     readBr();
@@ -1049,7 +1082,8 @@ function playSegments(L,chunkIdx,gen,startAt){
     for(let j=0;j<startAt;j++)wordBase+=segWordCount((segs[j]||{}).text);
     const done=()=>{if(!stopped){stopped=true;resolve()}};
     const next=()=>{
-      if(gen!==ttsGeneration||i>=segs.length){done();return}
+      // при фолбеку на browser доріжка edge не має продовжуватись (інакше два голоси)
+      if(gen!==ttsGeneration||mode==='browser'||i>=segs.length){done();return}
       const k=i++;
       const seg=segs[k];
       // сегмент без літер/цифр читати нема сенсу — просто пропускаємо
@@ -1062,7 +1096,7 @@ function playSegments(L,chunkIdx,gen,startAt){
         if(ttsAudioEl.load)ttsAudioEl.load();
         // захист від подвійного переходу: ended+error на одному сегменті не має пропускати сегмент
         let consumed=false;
-        const advance=()=>{if(consumed)return;consumed=true;if(!playing){done();return}wordBase+=segWordCount(seg.text);cancelAnimationFrame(wordHighlightRAF);next()};
+        const advance=()=>{if(consumed)return;consumed=true;if(!playing||mode==='browser'){done();return}wordBase+=segWordCount(seg.text);cancelAnimationFrame(wordHighlightRAF);next()};
         ttsAudioEl.onended=advance;
         ttsAudioEl.onerror=advance;
         const se=wordEndTimes(seg.text||'',rateMultiplier(curRate));
@@ -1106,6 +1140,8 @@ function readBr(){
   const ss=getSS();
   if(!ss){alert('На цьому браузері немає голосових функцій');ttsStop();return}
   ssCancel();
+  // припиняємо гру edge-аудіо, інакше доріжка edge продовжує грати паралельно
+  stopEdgeAudio();
   if(idx>=ttsChunks.length){ttsStop();document.getElementById('tts-st').textContent='✓';document.getElementById('tpf').style.width='100%';return}
   highlightChunk(idx);
   document.getElementById('tts-btn').textContent='⏸ Пауза';
@@ -1114,10 +1150,9 @@ function readBr(){
   const rateMatch=curRate.match(/([+-]?\d+)/);
   u.rate=rateMatch?1+parseInt(rateMatch[1])/100:1;
   u.pitch=1;
-  let vs=[];
-  try{vs=ss.getVoices?ss.getVoices():[]}catch(e){}
-  const m=vs.find(v=>v.lang&&v.lang.startsWith(ttsLang.value));
-  if(m)u.voice=m;
+  const brVoice=pickBrowserVoice(ttsLang.value);
+  if(brVoice)u.voice=brVoice;
+  const gen=++brGen; // якщо покоління змінилось — ця репліка вже неактуальна (накладення/стоп)
   const info=chunkWordCounts[idx];
   if(info){
     u.onboundary=e=>{
@@ -1129,9 +1164,30 @@ function readBr(){
       }
     };
   }
-  u.onend=()=>{if(!playing)return;stopWordHighlight();idx++;updateP();nextReadStep()};
-  u.onerror=e=>{if(!playing)return;if(e.error!=='canceled'&&e.error!=='interrupted'){stopWordHighlight();idx++;updateP();nextReadStep()}};
-  ss.speak(u);playing=true;
+  const advance=()=>{
+    if(gen!==brGen||!playing)return;
+    clearTimeout(brWatch);
+    stopWordHighlight();idx++;updateP();nextReadStep();
+  };
+  u.onend=advance;
+  u.onerror=e=>{if(e.error==='canceled'||e.error==='interrupted')return;advance();};
+  // невелика пауза після ss.cancel(): у Chrome speak() одразу після cancel()
+  // може накласти нову репліку на ще звуччу попередню — чути два голоси
+  setTimeout(()=>{
+    if(gen!==brGen)return;
+    ss.speak(u);playing=true;
+    // якщо браузер «проковтнув» репліку (onend/onerror не прийшов) — не зависаємо,
+    // самі переходимо до наступного абзацу. На паузі/поки ще говорить — просто перечікуємо.
+    const estimate=Math.min(30000,Math.max(4000,segWordCount(ttsChunks[idx])*380));
+    const guard=()=>{
+      if(gen!==brGen)return;
+      const s=getSS();
+      if(!playing||(s&&(s.paused||s.speaking))){brWatch=setTimeout(guard,2000);return;}
+      console.warn('br speech watchdog: onend не прийшов, переходимо далі');
+      advance();
+    };
+    clearTimeout(brWatch);brWatch=setTimeout(guard,estimate);
+  },120);
   document.getElementById('tts-st').textContent='🔊';
 }
 
