@@ -4,7 +4,6 @@ import os
 import sys
 import time
 import sqlite3
-import asyncio
 import logging
 import tempfile
 
@@ -15,8 +14,8 @@ STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
 
 sys.path.insert(0, PROJECT_ROOT)
 
-from app.config import MAX_TEXT_LENGTH, CACHE_DIR, EDGE_VOICES, VOICE_LABELS, ALL_VOICE_NAMES
-from app.tts import strip_markdown_for_tts, cache_key, rate_to_length_scale, _generate_edge_audio
+from app.config import MAX_TEXT_LENGTH, EDGE_VOICES, VOICE_LABELS, ALL_VOICE_NAMES
+from app.tts import generate_audio_sync
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +31,6 @@ limiter = apply_limits(app)
 
 def is_valid_voice(voice: str) -> bool:
     return voice in ALL_VOICE_NAMES
-
-
-def is_piper_voice(voice_id: str) -> bool:
-    return voice_id.startswith("piper:")
 
 
 @app.route("/health")
@@ -85,38 +80,8 @@ def tts_generate() -> Response:
     if len(text) > MAX_TEXT_LENGTH:
         return Response(f"Text too long (max {MAX_TEXT_LENGTH} chars)", status=413)
 
-    cleaned = strip_markdown_for_tts(text)
-
-    key = cache_key(cleaned, voice, rate, pitch)
-    ext = ".wav" if is_piper_voice(voice) else ".mp3"
-    cached_path = os.path.join(CACHE_DIR, f"{key}{ext}")
-    if os.path.exists(cached_path):
-        with open(cached_path, "rb") as f:
-            mime = "audio/wav" if ext == ".wav" else "audio/mpeg"
-            return Response(f.read(), mimetype=mime)
-
     try:
-        if is_piper_voice(voice):
-            try:
-                import piper_engine
-            except ImportError as e:
-                raise RuntimeError(f"Piper TTS not installed: {e}") from e
-            length_scale = rate_to_length_scale(rate)
-            audio_bytes = piper_engine.synthesize_wav(cleaned, voice, length_scale)
-            mime = "audio/wav"
-        else:
-            audio_path = asyncio.run(_generate_edge_audio(cleaned, voice, rate, pitch))
-            try:
-                with open(audio_path, "rb") as f:
-                    audio_bytes = f.read()
-            finally:
-                if os.path.exists(audio_path):
-                    os.unlink(audio_path)
-            mime = "audio/mpeg"
-
-        with open(cached_path, "wb") as f:
-            f.write(audio_bytes)
-
+        audio_bytes, mime = generate_audio_sync(text, voice, rate, pitch)
         return Response(audio_bytes, mimetype=mime)
     except Exception as e:
         logger.error("TTS error: %s", e, exc_info=True)

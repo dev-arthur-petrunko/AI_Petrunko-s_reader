@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import logging
 import tempfile
+import threading
 from typing import Optional
 
 import edge_tts
@@ -81,8 +82,19 @@ def _prune_cache_if_large(target: int = 600) -> None:
 def save_to_cache(audio_bytes: bytes, text: str, voice: str, rate: str, pitch: str = "+0Hz") -> str:
     ext = ".wav" if voice.startswith("piper:") else ".mp3"
     path = os.path.join(CACHE_DIR, f"{cache_key(text, voice, rate, pitch)}{ext}")
-    with open(path, "wb") as f:
-        f.write(audio_bytes)
+    # пишемо через тимчасовий файл + atomic replace: паралельний запит ніколи
+    # не прочитає недописаний MP3 (інакше можливе «бите»/обірване аудіо)
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(audio_bytes)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
     _prune_cache_if_large()
     return path
 
@@ -114,12 +126,14 @@ def rate_to_length_scale(rate: str) -> float:
 
 
 async def _generate_edge_audio(
-    text: str, voice: str, rate: str, pitch: str, attempts: int = 3, attempt_timeout: float = 15.0
+    text: str, voice: str, rate: str, pitch: str, attempts: int = 2, attempt_timeout: float = 10.0
 ) -> str:
     """Синтез через edge-tts із повторними спробами (Microsoft інколи троттлить IP → 403/порожньо).
 
     Кожна спроба обмежена timeout, щоб зависання websocket не блокувало запит назавжди —
-    інакше відтворення «зависає» і не починає читати далі.
+    інакше відтворення «зависає» і не починає читати далі. Дві спроби по 10с дають
+    передбачувану стелю ~21с: стільки ж чекає клієнт, тому голос не «срибає» на браузерний
+    через довгий, але успішний синтез.
     """
     last_err: Optional[Exception] = None
     for attempt in range(attempts):
@@ -145,15 +159,8 @@ async def _generate_edge_audio(
     raise last_err if last_err else RuntimeError("edge-tts не вдалося")
 
 
-def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[bytes, str]:
-    cleaned = strip_markdown_for_tts(text)
-
-    cached = get_cached_path(cleaned, voice, rate, pitch)
-    if cached:
-        with open(cached, "rb") as f:
-            mime = "audio/wav" if cached.endswith(".wav") else "audio/mpeg"
-            return f.read(), mime
-
+def _synthesize(cleaned: str, voice: str, rate: str, pitch: str) -> tuple[bytes, str]:
+    """Безпосередній синтез без кешу та дедуплікації."""
     if voice.startswith("piper:"):
         if not PIPER_AVAILABLE:
             raise RuntimeError("Piper TTS not installed. Run: pip install piper-tts")
@@ -164,8 +171,6 @@ def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[b
             raise RuntimeError(str(e)) from e
         except Exception as e:
             raise RuntimeError(f"Piper TTS error: {e}") from e
-
-        save_to_cache(audio_bytes, cleaned, voice, rate, pitch)
         return audio_bytes, "audio/wav"
 
     try:
@@ -179,6 +184,52 @@ def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[b
     finally:
         if os.path.exists(audio_path):
             os.unlink(audio_path)
-
-    save_to_cache(audio_bytes, cleaned, voice, rate, pitch)
     return audio_bytes, "audio/mpeg"
+
+
+# Дедуплікація одночасних запитів: клієнт обриває повільний запит за таймаутом
+# і одразу повторює його. Без цього сервер починав синтез заново (подвійна робота
+# і знову ризик не встигнути). Тепер повторний запит чекає вже запущений синтез
+# і віддає готовий файл із кешу.
+_inflight_lock = threading.Lock()
+_inflight: dict[str, threading.Event] = {}
+INFLIGHT_WAIT_TIMEOUT: float = 30.0
+
+
+def _read_cached(path: str) -> tuple[bytes, str]:
+    with open(path, "rb") as f:
+        mime = "audio/wav" if path.endswith(".wav") else "audio/mpeg"
+        return f.read(), mime
+
+
+def generate_audio_sync(text: str, voice: str, rate: str, pitch: str) -> tuple[bytes, str]:
+    cleaned = strip_markdown_for_tts(text)
+
+    cached = get_cached_path(cleaned, voice, rate, pitch)
+    if cached:
+        return _read_cached(cached)
+
+    key = cache_key(cleaned, voice, rate, pitch)
+    with _inflight_lock:
+        event = _inflight.get(key)
+        is_owner = event is None
+        if is_owner:
+            event = threading.Event()
+            _inflight[key] = event
+
+    if not is_owner:
+        # хтось уже синтезує цей самий текст — дочекаємось результату в кеші
+        event.wait(INFLIGHT_WAIT_TIMEOUT)
+        cached = get_cached_path(cleaned, voice, rate, pitch)
+        if cached:
+            return _read_cached(cached)
+
+    try:
+        audio_bytes, mime = _synthesize(cleaned, voice, rate, pitch)
+        save_to_cache(audio_bytes, cleaned, voice, rate, pitch)
+        return audio_bytes, mime
+    finally:
+        if is_owner:
+            with _inflight_lock:
+                _inflight.pop(key, None)
+            event.set()

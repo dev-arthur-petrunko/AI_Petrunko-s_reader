@@ -119,6 +119,58 @@ class TestTTSValidation:
         assert resp.status_code == 500
 
 
+class TestTtsDedup:
+    """Сервер не має синтезувати той самий текст двічі паралельно."""
+
+    def test_concurrent_same_text_synthesised_once(self, tmp_path, monkeypatch):
+        import threading
+        import time
+
+        from app import tts as tts_mod
+
+        monkeypatch.setattr(tts_mod, "CACHE_DIR", str(tmp_path))
+        calls = []
+
+        def fake_synth(cleaned, voice, rate, pitch):
+            calls.append(cleaned)
+            time.sleep(0.3)  # імітація повільного edge-tts
+            return b"AUDIO", "audio/mpeg"
+
+        monkeypatch.setattr(tts_mod, "_synthesize", fake_synth)
+
+        results = []
+
+        def run():
+            results.append(tts_mod.generate_audio_sync("Привіт світ", "uk-UA-PolinaNeural", "+0%", "+0Hz"))
+
+        threads = [threading.Thread(target=run) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(calls) == 1, "той самий текст має синтезуватися лише раз"
+        assert results == [(b"AUDIO", "audio/mpeg")] * 3
+
+    def test_second_call_uses_cache(self, tmp_path, monkeypatch):
+        from app import tts as tts_mod
+
+        monkeypatch.setattr(tts_mod, "CACHE_DIR", str(tmp_path))
+        calls = []
+
+        def fake_synth(cleaned, voice, rate, pitch):
+            calls.append(cleaned)
+            return b"AUDIO", "audio/mpeg"
+
+        monkeypatch.setattr(tts_mod, "_synthesize", fake_synth)
+
+        first = tts_mod.generate_audio_sync("Кешований текст", "uk-UA-PolinaNeural", "+0%", "+0Hz")
+        second = tts_mod.generate_audio_sync("Кешований текст", "uk-UA-PolinaNeural", "+0%", "+0Hz")
+
+        assert first == second == (b"AUDIO", "audio/mpeg")
+        assert len(calls) == 1
+
+
 class TestStaticSecurity:
     def test_root_serves_index(self, client):
         resp = client.get("/")

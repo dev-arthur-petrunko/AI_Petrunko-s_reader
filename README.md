@@ -26,7 +26,7 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Article rendered in a card with subtle shadows
 - Word count and auto-detected language shown in header
 - Back button to return to editor
-- Reader settings: font size (A−/A+), line spacing, column width — saved to localStorage
+- Reader settings: font size (A−/A+), line spacing, column width — saved to localStorage. Column width defaults to a wide 1100px layout, with 820px / 1100px / 1400px / full-screen options.
 - Table of contents dropdown (headings) + previous/next paragraph buttons in the TTS bar
 - Keyboard shortcuts: `Space` — play/pause, `←`/`→` — previous/next paragraph, `Esc` — stop
 - Export the whole text as MP3 (⬇ MP3) — audio concatenated chunk by chunk
@@ -53,7 +53,8 @@ Web app that converts Markdown into a beautifully formatted single-page site wit
 - Play / Pause / Resume / Stop controls
 - Markdown syntax cleaned before TTS (no reading `#`, `|`, backticks, links, images)
 - Fallback to browser `speechSynthesis` API when backend unavailable (auto-recovers back to edge-tts)
-- Transient TTS errors (429 / 5xx / network / timeout) are retried with backoff instead of dropping to a bad voice. Each attempt is bounded: server — `asyncio.wait_for` around edge-tts (15s), client — `AbortController` (12s), so a hung request never freezes reading; a fully failed paragraph falls back to the browser voice instead of looping
+- Transient TTS errors (429 / 5xx / network / timeout) are retried with backoff instead of dropping to a bad voice. Each request is bounded twice: server — two edge-tts attempts with `asyncio.wait_for` (10s each), client — `AbortController` (9s, then 26s), so a hung request never freezes reading; if a paragraph still fails, the browser voice continues **from the failed segment** (no replay of what was already heard) and the next paragraph tries edge-tts again
+- Server-side de-duplication: a retry that arrives while the same text is still being synthesised waits for that job and returns the cached result instead of starting a second synthesis (cache writes are atomic)
 - **Mobile-friendly**: autoplay policy handled by audio unlock on first tap, works on iOS Safari / Android Chrome
 - **Mixed-language**: English words inside non-English text are spoken by an English voice (toggle "EN" in the player), gender-matched to the selected voice
 - Audio caching by SHA-256 hash of (text + voice + rate + pitch)
@@ -68,18 +69,22 @@ the browser's `speechSynthesis`. The player treats the boundary between paragrap
 as a first-class state, so the engine handoff never leaves two things talking at once:
 
 - **Pause that actually holds.** Pausing sets an explicit `ttsPaused` flag instead of
-  relying on `audio.paused`. A segment that finishes downloading while paused no longer
-  auto-plays (its `play()` call is gated on the flag), so the position freezes where the
-  user left it and resume continues from that exact point.
+  relying on `audio.paused`. A segment that finishes downloading while paused is not
+  auto-played — it is started by the next "Resume", so the position freezes where the
+  user left it and continues from that exact point (the already finished segment is
+  never restarted).
 - **One voice at a time.** On the fallback path, the edge-tts audio is stopped before
   `speechSynthesis.speak()` is issued, and the edge playback chain is cancelled by mode
   gate — previously both tracks could overlap, which was the "scary voice". Browser voice
   selection is matched by locale (exact `uk-UA`, then base `uk`) from a `getVoices()`
   cache instead of falling back to whatever default voice the browser picked.
-- **No lost paragraphs on timeout.** A per-request timeout now raises `TTS_TIMEOUT`
-  (distinct from `TTS_OFFLINE`), and the retry resumes at the exact segment that timed
-  out rather than replaying the whole paragraph — and a slow request no longer flips the
-  engine to the browser voice. Trailing punctuation is never split into its own segment.
+- **No lost words on segment errors.** If an English-voice segment fails, the same text is
+  retried with the main voice instead of being skipped, so no words disappear from the
+  reading.
+- **No repeats on fallback.** `TTS_TIMEOUT` / `TTS_OFFLINE` / "all segments failed" resume
+  the browser voice at the character offset of the failed segment rather than at the start
+  of the paragraph, with word highlighting shifted accordingly. Trailing punctuation is
+  never split into its own segment.
 - **Bounded browser fallback.** `speechSynthesis` utterances carry a watchdog (text-length
   estimate) so a swallowed `onend` can't stall paragraph progression, and generation
   tokens prevent stale callbacks from resuming an older passage.
