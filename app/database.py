@@ -13,11 +13,12 @@ MAX_AGE_DAYS = 30
 
 
 def _pick_writable_dir() -> str:
-    """Вибирає записувану директорію для БД: KB_DB_DIR → проєкт → тимчасова папка."""
+    """Вибирає записувану директорію для БД: KB_DB_DIR → пакет проєкту → тимчасова папка."""
+    pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidates = []
     if os.environ.get("KB_DB_DIR"):
         candidates.append(os.environ["KB_DB_DIR"])
-    candidates.append(os.path.abspath("."))
+    candidates.append(pkg_root)
     candidates.append(os.path.join(tempfile.gettempdir(), "kb_data"))
     for d in candidates:
         try:

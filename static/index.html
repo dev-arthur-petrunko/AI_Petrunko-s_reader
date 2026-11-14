@@ -378,6 +378,11 @@ const editor=document.getElementById('editor');
 const artEl=document.getElementById('article');
 let ttsChunks=[];
 let chunkWordCounts=[];
+// позиція в СИМВОЛАХ: з неї відновлюється читання після зміни голосу/швидкості
+// або фолбеку — абзац не перечитується з початку (без повторів)
+let curChunkChars=0;
+// елементи, що «починають» кожен чанк (для швидкої підсвітки без querySelector)
+let chunkEls=[];
 
 function toggleTheme(){
   const cur=document.documentElement.getAttribute('data-theme');
@@ -444,6 +449,10 @@ function splitChunkIntoWords(el,startGlobal){
             span.className='w';
             span.setAttribute('data-w',gi);
             span.textContent=part;
+            // одразу кладемо елемент у кеш: без нього підсвітка шукала б кожне
+            // слово querySelector'ом по всьому документу (на великих книгах — O(n²)
+            // і голос «відставав» від виділення, здавалося що читає не те)
+            wordEls[gi]=span;
             gi++;
             frag.appendChild(span);
           }
@@ -461,6 +470,9 @@ function splitChunkIntoWords(el,startGlobal){
 function buildChunks(){
   ttsChunks=[];
   chunkWordCounts=[];
+  chunkEls=[];
+  // старі елементи слів більше не існують після рендеру нового тексту
+  wordEls.length=0;currentWordEl=null;currentChunkEl=null;
   const toc=document.getElementById('tts-toc');
   toc.innerHTML='<option value="">Зміст</option>';
   const SEL='p,h1,h2,h3,h4,h5,h6,li,td,th,pre,dt,dd';
@@ -506,15 +518,22 @@ function buildChunks(){
   });
   flush();
   if(!ttsChunks.length)return;
-  items.forEach(item=>{
-    let chunkIdx=-1;
-    for(let ci=0;ci<chunkWordCounts.length;ci++){
+  // позиція кожної комірки у масиві чанків: одноразовий прохід із монотонним
+  // покажчиком (замість лінійного пошуку items×chunks у циклі — на великих
+  // книгах це давало квадратичну складність і рендер довго «гальмував»)
+  const itemChunk=new Map();
+  {
+    let ci=0;
+    for(const item of items){
+      while(ci+1<chunkWordCounts.length&&chunkWordCounts[ci].offset+chunkWordCounts[ci].count<=item.start)ci++;
       const c=chunkWordCounts[ci];
-      if(item.start>=c.offset&&item.start<c.offset+c.count){chunkIdx=ci;break;}
-      if(item.start<c.offset)break;
+      itemChunk.set(item,(c&&item.start>=c.offset&&item.start<c.offset+c.count)?ci:0);
     }
-    if(chunkIdx<0)chunkIdx=0;
+  }
+  items.forEach(item=>{
+    const chunkIdx=itemChunk.get(item)||0;
     item.el.setAttribute('data-p',chunkIdx);
+    if(!chunkEls[chunkIdx])chunkEls[chunkIdx]=item.el;
     if(/^H[1-6]$/.test(item.el.tagName)){
       const opt=document.createElement('option');
       opt.value=chunkIdx;
@@ -548,13 +567,17 @@ function brGroups(el){
   return groups;
 }
 
+// слово за глобальним індексом: швидкий доступ через кеш (на великих книгах
+// querySelector по всьому документу на кожне слово «з'їдав» секунди — саме тому
+// підсвітка «відставала» від голосу і здавалося, що читає не те)
+const wordEls=[];
 let currentWordEl=null;
 function highlightWord(globalIdx){
   if(currentWordEl)currentWordEl.classList.remove('w-hl');
   currentWordEl=null;
   if(globalIdx<0)return;
-  const el=artEl.querySelector('[data-w="'+globalIdx+'"]');
-  if(el){el.classList.add('w-hl');currentWordEl=el}
+  const el=wordEls[globalIdx]||(artEl.querySelector('[data-w="'+globalIdx+'"]')||null);
+  if(el){wordEls[globalIdx]=el;el.classList.add('w-hl');currentWordEl=el}
 }
 
 let wordHighlightRAF=null;
@@ -575,15 +598,22 @@ function stopWordHighlight(){
   highlightWord(-1);
 }
 
+// підсвітка активного абзацу: min(кешований елемент, querySelector як запас)
+// замість querySelectorAll('[data-p]') на весь документ (на великих книгах
+// кожен перехід «проходив» по всьому DOM — відчутні підвисання)
+let currentChunkEl=null;
 function highlightChunk(i){
-  artEl.querySelectorAll('[data-p]').forEach(e=>e.classList.remove('reading'));
+  if(currentChunkEl){currentChunkEl.classList.remove('reading');currentChunkEl=null}
   if(i<0)return;
-  const el=artEl.querySelector('[data-p="'+i+'"]');
-  if(el){el.classList.add('reading');el.scrollIntoView({behavior:'smooth',block:'center'})}
+  let el=chunkEls[i];
+  if(!el){el=artEl.querySelector('[data-p="'+i+'"]');if(el)chunkEls[i]=el}
+  if(el){currentChunkEl=el;el.classList.add('reading');el.scrollIntoView({behavior:'smooth',block:'center'})}
 }
 
 function openReader(){
   const t=editor.value.trim();if(!t)return;
+  // новий текст: чанки будуються окремо, до того моменту стартувати не можна
+  chunksReady=false;
   // спершу мова/голос/інтерфейс — щоб навіть при повільному чи вдалому рендерингу великого тексту все працювало
   const l=detectLang(t.slice(0,200000));
   document.getElementById('det-lang').textContent=l.f+' '+l.n;
@@ -631,8 +661,11 @@ function openReader(){
           const p=document.createElement('p');p.textContent=ps;artEl.appendChild(p);
         });
         buildChunks();
-      }catch(e2){}
+      }catch(e2){console.error('render fallback failed:',e2)}
     }
+    // чанки готові (або відпрацьовано з фолбеком): старт читання з цього моменту
+    // дозволений, а очікування у startFrom завершується
+    chunksReady=true;
   },0);
 }
 
@@ -737,12 +770,19 @@ function saveVoicePref(){
   localStorage.setItem('chitala_voice',ttsVoice.value);
   if(ttsLang.value)localStorage.setItem('chitala_voice_'+ttsLang.value,ttsVoice.value);
 }
+// перезапуск читання того самого місця (зміна голосу/швидкості/англ. слів):
+// запам'ятовуємо позицію в символах, щоб продовжити з неї, а не з початку абзацу
+function restartSameSpot(){
+  const pos=idx,ch=curChunkChars;
+  ttsStop();
+  startFrom(pos,ch);
+}
 ttsVoice.addEventListener('change',()=>{
   saveVoicePref();
   updateEngineBadge();
-  if(playing){const pos=idx;ttsStop();startFrom(pos)}
+  if(playing){restartSameSpot()}
 });
-ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();startFrom(pos)}});
+ttsSpeed.addEventListener('change',()=>{if(playing){restartSameSpot()}});
 (function initEnWords(){
   const el=document.getElementById('tts-en');
   if(!el)return;
@@ -750,7 +790,7 @@ ttsSpeed.addEventListener('change',()=>{if(playing){const pos=idx;ttsStop();star
   if(saved!==null)el.checked=saved==='1';
   el.addEventListener('change',()=>{
     localStorage.setItem('chitala_en_words',el.checked?'1':'0');
-    if(playing){const pos=idx;ttsStop();startFrom(pos)}
+    if(playing){restartSameSpot()}
   });
 })();
 
@@ -762,6 +802,9 @@ let ttsPaused=false;
 // запускаємо його рівно після «Далі» (інакше сегмент губився або повторювався)
 let pendingPlay=null;
 let chunkLoaders={},edgeFailStreak=0,healEdge=false,healAttempts=0;
+// чанки відповідають саме показаному тексту: інакше під час повільного рендеру
+// великого тексту можна стартувати й озвучувати ПОПЕРЕДНІЙ документ («читає не те»)
+let chunksReady=true;
 // покоління браузерного читання: прибирає накладені репліки (два голоси) і «завислі» onend
 let brGen=0,brWatch=0;
 let downloadingBook=false;
@@ -781,6 +824,7 @@ function ssCancel(){
 function stopEdgeAudio(){
   pendingPlay=null;
   ttsAudioEl.onended=null;ttsAudioEl.onerror=null;
+  ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){try{URL.revokeObjectURL(blobUrl)}catch(e){}blobUrl=null}
 }
@@ -851,15 +895,21 @@ function updateEngineBadge(){
 }
 ttsVoice.addEventListener('change',updateEngineBadge);
 
-async function startFrom(i){
+async function startFrom(i,fromChar){
+  // чанки ще не відповідають показаному тексту (триває повільний рендер великої
+  // книги) — не читаємо сторонній/старий текст: чекаємо на завершення рендеру
+  if(!chunksReady){setTimeout(()=>{if(chunksReady&&!playing)startFrom(i,fromChar)},250);return}
+  if(!ttsChunks.length){setTimeout(()=>{if(chunksReady&&!playing&&ttsChunks.length)startFrom(i,fromChar)},250);return}
+  // спершу повна зупинка (вона валідує покоління), і тільки потім — нове покоління
+  ttsStop();
   const gen=++ttsGeneration;
   if(gen!==ttsGeneration)return;
-  ttsStop();
   idx=i;
   curVoice=ttsVoice.value||'uk-UA-PolinaNeural';
   curRate=ttsSpeed.value;
   if(gen!==ttsGeneration)return;
   edgeFailStreak=0;healAttempts=0;mode='edge';ttsPaused=false;
+  curChunkChars=Math.max(0,Math.min(fromChar||0,(ttsChunks[idx]||'').length));
   playEdge();
 }
 
@@ -916,7 +966,7 @@ async function edgeSpeak(text,voice,rate){
   }
 }
 
-async function playEdge(startAt=0){
+async function playEdge(startAt){
   const gen=ttsGeneration;
   // прибираємо «залишкову» мову браузера після фолбека і синхронізуємо бейдж
   ssCancel();
@@ -930,6 +980,29 @@ async function playEdge(startAt=0){
     document.getElementById('tts-btn').textContent='⏸ Пауза';
     document.getElementById('tts-st').textContent=(idx+1)+'/'+ttsChunks.length;
     const L=getLoader(idx);
+    // позиція відновлення — на початку слова (без «обрізаних» слів на стику)
+    curChunkChars=snapWordStart(ttsChunks[idx]||'',curChunkChars);
+    // стартовий сегмент: явний startAt або позиція в символах (після зміни
+    // голосу/швидкості читання продовжується з того ж слова, а не з початку)
+    let resumeFrac=0;
+    if(typeof startAt!=='number'){
+      startAt=0;
+      if(curChunkChars>0){
+        const segs=L.segs;
+        let n=0;
+        for(let j=0;j<segs.length;j++){
+          const len=(segs[j].text||'').length;
+          if(curChunkChars<n+len){
+            // позиція всередині сегмента — частка для seek (єдиний спосіб
+            // продовжити посеред абзацу, якщо абзац = один сегмент)
+            resumeFrac=len?Math.min(1,(curChunkChars-n)/len):0;
+            startAt=j;break;
+          }
+          n+=len;startAt=j+1;
+        }
+        if(startAt>=segs.length){startAt=segs.length-1;resumeFrac=0}
+      }
+    }
     // прибираємо завантажувачі чанків, які вже минули
     for(const k in chunkLoaders){if(+k<idx)revokeLoader(k);}
     if(gen!==ttsGeneration)return;
@@ -938,11 +1011,11 @@ async function playEdge(startAt=0){
     if(target<ttsChunks.length)preloadChunk(target);
     // відтворюємо сегменти; проблемні сегменти пропускаються всередині playSegments,
     // щоб абзац не перечитувався нескінченно
-    await playSegments(L,idx,gen,startAt);
+    await playSegments(L,idx,gen,startAt,resumeFrac);
     if(gen!==ttsGeneration||!playing)return;
     edgeFailStreak=0;
     revokeLoader(idx);
-    stopWordHighlight();idx++;updateP();playEdge();
+    stopWordHighlight();idx++;updateP();curChunkChars=0;playEdge();
   }catch(e){
     if(gen!==ttsGeneration)return;
     console.error('edge fail:',e);
@@ -982,9 +1055,11 @@ async function playEdge(startAt=0){
       readBr(resumeChar);
       return;
     }
-    // початкові збої — переповторюємо з паузою, а не падаємо в browser одразу
+    // початкові збої — переповторюємо з паузою, а не падаємо в browser одразу.
+    // Відновлюємося з того ж сегмента (resumeFrom), а не з початку абзацу
     if(edgeFailStreak<=2){
-      setTimeout(()=>{if(gen===ttsGeneration)playEdge(typeof e.resumeFrom==='number'?e.resumeFrom:0)},400*edgeFailStreak);
+      const rf=typeof e.resumeFrom==='number'?e.resumeFrom:0;
+      setTimeout(()=>{if(gen===ttsGeneration)playEdge(rf)},400*edgeFailStreak);
       return;
     }
     mode='browser';updateEngineBadge();
@@ -1109,17 +1184,22 @@ function revokeLoader(chunkIdx){
 }
 function revokeAllLoaders(){for(const k in chunkLoaders)revokeLoader(k)}
 // послідовне відтворення сегментів чанка з підсвіткою слів
-function playSegments(L,chunkIdx,gen,startAt){
+function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
   startAt=startAt||0;
   return new Promise((resolve,reject)=>{
     const info=chunkWordCounts[chunkIdx];
     const segs=L.segs||[];
+    // повна довжина абзацу (межа для позиції відновлення)
+    const fullLen=(ttsChunks[chunkIdx]||'').length;
     // сегменти беруться зі спільного завантажувача — без дубльованих запитів.
     // edgeSpeak уже робить власні повторні спроби, тому тут зайвий ретрай не потрібен:
     // він лише подвоював час очікування на завислому сервері
     const load=i=>segUrl(L,i);
     let i=startAt,wordBase=0,stopped=false,failed=0;
-    for(let j=0;j<startAt;j++)wordBase+=segWordCount((segs[j]||{}).text);
+    // позиція в символах у межах абзацу: оновлюється після кожного програного
+    // сегмента — це точка відновлення після зміни голосу/швидкості чи фолбеку
+    let charDone=0;
+    for(let j=0;j<startAt;j++){wordBase+=segWordCount((segs[j]||{}).text);charDone+=(segs[j]||{text:''}).text.length;}
     const done=()=>{if(!stopped){stopped=true;resolve()}};
     const next=()=>{
       // при фолбеку на browser доріжка edge не має продовжуватись (інакше два голоси)
@@ -1136,9 +1216,26 @@ function playSegments(L,chunkIdx,gen,startAt){
         if(ttsAudioEl.load)ttsAudioEl.load();
         // захист від подвійного переходу: ended+error на одному сегменті не має пропускати сегмент
         let consumed=false;
-        const advance=()=>{if(consumed)return;consumed=true;if(!playing||mode==='browser'){done();return}wordBase+=segWordCount(seg.text);cancelAnimationFrame(wordHighlightRAF);next()};
+        const advance=()=>{if(consumed)return;consumed=true;ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;if(!playing||mode==='browser'){done();return}wordBase+=segWordCount(seg.text);charDone+=(seg.text||'').length;curChunkChars=Math.min(charDone,fullLen);cancelAnimationFrame(wordHighlightRAF);next()};
         ttsAudioEl.onended=advance;
         ttsAudioEl.onerror=advance;
+        // позиція в символах у межах ПОТОЧНОГО сегмента (для відновлення посеред
+        // сегмента — у дрібних абзаців один сегмент на весь абзац)
+        const segChars=(seg.text||'').length;
+        // відновлення посеред сегмента: seek на частку після завантаження метаданих
+        const frac=(k===startAt&&resumeFrac>0)?resumeFrac:0;
+        let seeked=!frac;
+        const doSeek=()=>{
+          if(seeked||!isFinite(ttsAudioEl.duration)||!ttsAudioEl.duration)return;
+          try{ttsAudioEl.currentTime=Math.max(0,ttsAudioEl.duration*frac)}catch(err){}
+          seeked=true;
+          // властивості, а не addEventListener: інакше слушачі накопичувалися б
+          // на кожному сегменті (в-ліч)
+          ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;
+        };
+        // властивості перезаписуються при кожному новому src — старі не «залипають»
+        ttsAudioEl.onloadedmetadata=doSeek;ttsAudioEl.ondurationchange=doSeek;
+        if(!seeked)setTimeout(doSeek,0);
         const se=wordEndTimes(seg.text||'',rateMultiplier(curRate));
         const stotal=se.length?se[se.length-1]:1;
         let wi=0;
@@ -1150,6 +1247,12 @@ function playSegments(L,chunkIdx,gen,startAt){
           const ct=Math.min(cur/(dur/stotal),stotal);
           while(wi<se.length&&se[wi]<ct)wi++;
           if(se.length)highlightWord((info?info.offset:0)+wordBase+Math.min(wi,se.length-1));
+          // позиція оновлюється БЕЗперервно (не лише в кінці сегмента): зміна
+          // голосу/швидкості посеред абзацу продовжує з того ж слова
+          if(segChars&&isFinite(cur)){
+            const inSeg=Math.min(segChars,Math.round(cur/(dur||1)*segChars));
+            curChunkChars=Math.min(charDone+inSeg,fullLen);
+          }
           wordHighlightRAF=requestAnimationFrame(tick);
         };
         wordHighlightRAF=requestAnimationFrame(tick);
@@ -1204,7 +1307,22 @@ function playSegments(L,chunkIdx,gen,startAt){
   });
 }
 
-function readBr(startChar){
+// точка відновлення має припадати на ПОЧАТОК слова — інакше перше слово
+// «обривається» навпіл (позиція за часом аудіо рахується приблизно)
+function snapWordStart(text,pos){
+  if(pos<=0||pos>=text.length)return Math.max(0,Math.min(pos,text.length));
+  const isWord=c=>c&&/[\p{L}\p{N}'’\-]/u.test(c);
+  let p=pos;
+  if(isWord(text[p])){
+    while(p>0&&isWord(text[p-1]))p--;   // усередині слова — на його початок
+    return p;
+  }
+  // на пробілі/пунктуації — до наступного слова
+  while(p<text.length&&!isWord(text[p]))p++;
+  return p;
+}
+
+function readBr(startChar,endChar){
   const ss=getSS();
   if(!ss){alert('На цьому браузері немає голосових функцій');ttsStop();return}
   ssCancel();
@@ -1215,11 +1333,15 @@ function readBr(startChar){
   ttsPaused=false;
   if(idx>=ttsChunks.length){ttsStop();document.getElementById('tts-st').textContent='✓';document.getElementById('tpf').style.width='100%';return}
   const full=ttsChunks[idx];
-  // фолбек міг статися посеред абзацу — читаємо з місця збою, без повтору
-  const start=Math.max(0,Math.min(startChar||0,full.length));
-  const text=full.slice(start);
+  // фолбек міг статися посеред абзацу: читаємо ЛИШЕ частину цього абзацу
+  // (від місця збою до його кінця). Раніше брався весь хвост документа —
+  // тому в мікрі/середніх текстах браузерний голос «читав не те» й одразу ж
+  // стрибав далі, а абзац нібито повторювався
+  const start=snapWordStart(full,Math.max(0,Math.min(typeof startChar==='number'?startChar:(curChunkChars||0),full.length)));
+  const end=Math.max(start,Math.min(typeof endChar==='number'?endChar:full.length,full.length));
+  const text=full.slice(start,end);
   if(!/[\p{L}\p{N}]/u.test(text)){
-    idx++;updateP();
+    idx++;updateP();curChunkChars=0;
     if(idx<ttsChunks.length)readBr();
     return;
   }
@@ -1235,20 +1357,28 @@ function readBr(startChar){
   const gen=++brGen; // якщо покоління змінилось — ця репліка вже неактуальна (накладення/стоп)
   const info=chunkWordCounts[idx];
   if(info){
-    // слова до місця старту вже прочитані — зсуваємо індекс підсвітки
+    // глобальний індекс слова = початок абзацу + прочитані слова у цьому
+    // шматку. Дерево співпадає з текстом сегмента (той самий full.slice),
+    // тож підсвітка не «з'їжджає» і голос завжди йде пор із виділеним словом
     const prefixWords=segWordCount(full.slice(0,start));
     u.onboundary=e=>{
       if(e.name==='word'){
-        const charIdx=e.charIndex;
-        const wordNum=text.substring(0,charIdx).split(/\s+/).filter(w=>w).length;
+        const wordNum=text.substring(0,e.charIndex).split(/\s+/).filter(w=>w).length;
         highlightWord(info.offset+prefixWords+wordNum);
+        // позиція в символах абзацу: зміна голосу/швидкості посеред репліки
+        // продовжить з того ж слова, а не з початку абзацу
+        curChunkChars=Math.min(start+e.charIndex,full.length);
       }
     };
   }
+  // захист від подвійного переходу: onend+onerror на одній репліці не мають
+  // «проскочити» абзац (інакше текст пропускається)
+  let advanced=false;
   const advance=()=>{
-    if(gen!==brGen||!playing)return;
+    if(advanced||gen!==brGen||!playing)return;
+    advanced=true;
     clearTimeout(brWatch);
-    stopWordHighlight();idx++;updateP();nextReadStep();
+    stopWordHighlight();idx++;updateP();curChunkChars=0;nextReadStep();
   };
   u.onend=advance;
   u.onerror=e=>{if(e.error==='canceled'||e.error==='interrupted')return;advance();};
@@ -1274,7 +1404,7 @@ function readBr(startChar){
 
 // наступний крок читання: якщо був фолбек на browser, пробуємо повернутись на edge
 function nextReadStep(){
-  if(healEdge){healEdge=false;mode='edge';playEdge();return}
+  if(healEdge){healEdge=false;mode='edge';curChunkChars=0;playEdge();return}
   readBr();
 }
 
@@ -1311,12 +1441,17 @@ function ttsToggle(){
 }
 
 function ttsStop(){
+  // глобальна зупинка: нове покоління вбиває ВСІ відкладені ретраї/продовження.
+  // Без цього Esc/пауза-стоп під час backoff-таймера (400мс) «воскресшого»
+  // playEdge продовжував читання — користувач бачив повторення після зупинки
+  ttsGeneration++;
   ssCancel();
   ttsAudioEl.onended=null;ttsAudioEl.onerror=null;
+  ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;
   ttsAudioEl.pause();ttsAudioEl.src='';
   if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null}
   revokeAllLoaders();
-  playing=false;idx=0;ttsPaused=false;pendingPlay=null;
+  playing=false;idx=0;ttsPaused=false;pendingPlay=null;curChunkChars=0;
   stopWordHighlight();
   highlightChunk(-1);
   document.getElementById('tts-btn').textContent='▶ Читати';
@@ -1413,6 +1548,8 @@ async function fetchTtsPart(text,voice,rate,cache){
 }
 
 async function downloadBookMP3(){
+  // чекаємо завершення рендеру: чанки мають відповідати показаному тексту
+  if(!chunksReady){setTimeout(()=>{if(chunksReady)downloadBookMP3()},300);return}
   if(!ttsChunks.length||downloadingBook)return;
   downloadingBook=true;
   let voice=curVoice||ttsVoice.value||'uk-UA-PolinaNeural';

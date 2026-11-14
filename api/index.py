@@ -2,10 +2,7 @@
 
 import os
 import sys
-import time
-import sqlite3
 import logging
-import tempfile
 
 from flask import Flask, request, Response, send_from_directory
 
@@ -14,13 +11,13 @@ STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
 
 sys.path.insert(0, PROJECT_ROOT)
 
-from app.config import MAX_TEXT_LENGTH, EDGE_VOICES, VOICE_LABELS, ALL_VOICE_NAMES
+from app.config import MAX_TEXT_LENGTH, MAX_CONTENT_LENGTH, EDGE_VOICES, VOICE_LABELS, ALL_VOICE_NAMES
 from app.tts import generate_audio_sync
 
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 
 from app.limits import apply_limits
 
@@ -94,70 +91,42 @@ def tts_generate() -> Response:
 
 
 # ── База знань (працює локально, на Render і на serverless через записувану папку) ──
+# Єдина реалізація — app.database: тут був дубль тієї ж логіки зі своїм DB_PATH,
+# через що serverless читав іншу базу, ніж локальний сервер (документи «губилися»)
+
+from app.database import init_db
+
+try:
+    init_db()
+    KB_OK = True
+except Exception as e:  # read-only середовище serverless — API віддає 501
+    logger.warning("Knowledge base init failed: %s", e)
+    KB_OK = False
 
 
-def _pick_writable_dir() -> str:
-    """Записувана директорія: KB_DB_DIR → проєкт → /tmp (для Vercel serverless)."""
-    candidates = []
-    if os.environ.get("KB_DB_DIR"):
-        candidates.append(os.environ["KB_DB_DIR"])
-    candidates.append(PROJECT_ROOT)
-    candidates.append(os.path.join(tempfile.gettempdir(), "kb_data"))
-    for d in candidates:
-        try:
-            os.makedirs(d, exist_ok=True)
-            probe = os.path.join(d, ".wtest")
-            with open(probe, "w") as f:
-                f.write("x")
-            os.unlink(probe)
-            return d
-        except OSError:
-            continue
-    return tempfile.gettempdir()
-
-
-DB_PATH = os.path.join(_pick_writable_dir(), "knowledge_base.db")
-
-
-def _kb_available():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("""CREATE TABLE IF NOT EXISTS documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL, content TEXT NOT NULL,
-            format TEXT NOT NULL DEFAULT 'txt', word_count INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL, last_accessed REAL NOT NULL
-        )""")
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-
-KB_OK = _kb_available()
+def _kb_guard():
+    """501, якщо база недоступна на цьому середовищі."""
+    return None if KB_OK else Response("Knowledge base not available on serverless", status=501)
 
 
 @app.route("/api/docs", methods=["GET"])
 def docs_list():
-    if not KB_OK:
-        return Response("Knowledge base not available on serverless", status=501)
+    from app.database import list_documents, search_documents
+    blocked = _kb_guard()
+    if blocked:
+        return blocked
     q = request.args.get("q", "").strip()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     if q:
-        pat = f"%{q}%"
-        rows = conn.execute("SELECT id, title, word_count, created_at FROM documents WHERE title LIKE ? OR content LIKE ? ORDER BY last_accessed DESC", (pat, pat)).fetchall()
-    else:
-        rows = conn.execute("SELECT id, title, word_count, created_at FROM documents ORDER BY last_accessed DESC").fetchall()
-    conn.close()
-    return {"documents": [dict(r) for r in rows]}
+        return {"documents": search_documents(q)}
+    return {"documents": list_documents()}
 
 
 @app.route("/api/docs", methods=["POST"])
 def docs_upload():
-    if not KB_OK:
-        return Response("Knowledge base not available on serverless", status=501)
+    from app.database import add_document
+    blocked = _kb_guard()
+    if blocked:
+        return blocked
     allowed = {".txt", ".md", ".markdown", ".text", ".pdf", ".epub", ".fb2", ".mobi", ".azw3", ".docx", ".odt", ".rtf", ".html", ".htm"}
     if request.content_type and "multipart" in request.content_type:
         f = request.files.get("file")
@@ -192,40 +161,29 @@ def docs_upload():
         return Response("Empty content", status=400)
     if len(content) > 500_000:
         return Response("Document too large (max 500k chars)", status=413)
-    now = time.time()
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("INSERT INTO documents (title,content,format,word_count,created_at,last_accessed) VALUES (?,?,?,?,?,?)",
-                       (title, content, fmt, len(content.split()), now, now))
-    doc_id = cur.lastrowid
-    conn.commit()
-    conn.close()
+    doc_id = add_document(title, content, fmt)
     return {"id": doc_id, "title": title, "word_count": len(content.split())}, 201
 
 
 @app.route("/api/docs/<int:doc_id>", methods=["GET"])
 def docs_get(doc_id):
-    if not KB_OK:
-        return Response("Knowledge base not available on serverless", status=501)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
-    if row:
-        conn.execute("UPDATE documents SET last_accessed = ? WHERE id = ?", (time.time(), doc_id))
-        conn.commit()
-    conn.close()
-    return dict(row) if row else (Response("Not found", status=404))
+    from app.database import get_document
+    blocked = _kb_guard()
+    if blocked:
+        return blocked
+    doc = get_document(doc_id)
+    return doc if doc else Response("Not found", status=404)
 
 
 @app.route("/api/docs/<int:doc_id>", methods=["DELETE"])
 def docs_delete(doc_id):
-    if not KB_OK:
-        return Response("Knowledge base not available on serverless", status=501)
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    conn.close()
-    return {"deleted": deleted} if deleted else (Response("Not found", status=404))
+    from app.database import delete_document
+    blocked = _kb_guard()
+    if blocked:
+        return blocked
+    if not delete_document(doc_id):
+        return Response("Not found", status=404)
+    return {"deleted": True}
 
 
 # Ліміти накладено у app.limits.apply_limits при створенні застосунку.

@@ -65,11 +65,6 @@ def _load_voice(model_name: str) -> PiperVoice:
     return PiperVoice.load(onnx_path)
 
 
-def is_piper_voice(voice_id: str) -> bool:
-    """Check if voice_id belongs to Piper engine."""
-    return voice_id in PIPER_VOICES
-
-
 def synthesize_wav(text: str, voice_id: str, length_scale: float = 1.0) -> bytes:
     """Synthesize speech via Piper, returns WAV bytes.
 

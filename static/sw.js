@@ -1,5 +1,5 @@
 /** Service Worker для Petrunko's Reader — офлайн-оболонка додатку. */
-const SHELL_CACHE = 'preader-shell-v3';
+const SHELL_CACHE = 'preader-shell-v4';
 const SHELL = ['/', '/index.html', '/manifest.json', '/sw.js', '/icon.svg'];
 
 self.addEventListener('install', e => {

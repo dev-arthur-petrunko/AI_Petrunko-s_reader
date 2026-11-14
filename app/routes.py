@@ -5,7 +5,7 @@ import logging
 
 from flask import Blueprint, request, Response, send_from_directory
 
-from app.config import BASE_DIR, MAX_TEXT_LENGTH, EDGE_VOICES, ALL_VOICE_NAMES, VOICE_LABELS
+from app.config import BASE_DIR, MAX_TEXT_LENGTH, MAX_CONTENT_LENGTH, EDGE_VOICES, ALL_VOICE_NAMES, VOICE_LABELS
 from app.tts import generate_audio_sync, cleanup_cache
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ def create_app() -> "Flask":
     from flask import Flask
 
     app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
-    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 
     app.register_blueprint(api)
     cleanup_cache()
