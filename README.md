@@ -88,6 +88,23 @@ as a first-class state, so the engine handoff never leaves two things talking at
 - **Bounded browser fallback.** `speechSynthesis` utterances carry a watchdog (text-length
   estimate) so a swallowed `onend` can't stall paragraph progression, and generation
   tokens prevent stale callbacks from resuming an older passage.
+- **Falls back to the paragraph, not the whole document.** On `TTS_TIMEOUT` /
+  `TTS_OFFLINE` / "all segments failed" the browser voice continues **from the character
+  offset of the failed segment to the end of that paragraph** (`readBr(start)`), with word
+  highlighting shifted accordingly. Previously the fallback grabbed the entire remaining
+  document, so the voice appeared to read unrelated text and jump ahead on short articles.
+- **Changing text never keeps the old audio.** Opening the reader now stops playback and
+  revokes every loaded segment (`ttsStop()` + `chunkLoaders` reset); a render generation
+  token (`renderGen`) makes rapid re-opens apply only the last text, so stale blob URLs
+  from the previous document can no longer be played over the new one.
+- **Stop is final.** `ttsStop()` bumps `ttsGeneration`, so pending retries (400 ms backoff)
+  can't resurrect playback after Esc/Stop.
+- **Resume continues mid-paragraph.** Voice/speed/EN-toggle changes restart from the saved
+  character offset (`curChunkChars`), snapped to a word boundary with an in-segment seek —
+  the paragraph is not re-read from the start and no word starts half-cut.
+- **Collision-resistant browser cache key.** The Cache Storage key mixes text length with
+  two 32-bit hashes (FNV-1a + multiply-31); a single 32-bit hash could collide on large
+  books and serve one segment's audio for another.
 
 See `playEdge`, `playSegments`, `readBr`, `edgeSpeak` in `static/index.html`.
 

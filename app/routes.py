@@ -54,7 +54,9 @@ def tts_generate() -> Response:
     try:
         audio_bytes, mime = generate_audio_sync(text, voice, rate, pitch)
         return Response(audio_bytes, mimetype=mime)
-    except RuntimeError as e:
+    except Exception as e:
+        # будь-яка помилка синтезу (не лише RuntimeError) має стати JSON-відповіддю
+        # з коректним статусом, а не 500 з HTML із стеком
         logger.error("TTS error: %s", e, exc_info=True)
         msg = str(e).lower()
         if "перевищив час очікування" in msg:

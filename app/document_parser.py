@@ -4,7 +4,6 @@ import io
 import os
 import logging
 import re
-from typing import Iterable, Optional
 
 logger = logging.getLogger(__name__)
 

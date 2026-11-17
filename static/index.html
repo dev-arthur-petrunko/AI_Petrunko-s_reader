@@ -612,8 +612,16 @@ function highlightChunk(i){
 
 function openReader(){
   const t=editor.value.trim();if(!t)return;
-  // новий текст: чанки будуються окремо, до того моменту стартувати не можна
+  // новий текст: зупиняємо попереднє читання і скидаємо завантажувачі
+  // сегментів. Без цього застарілі blob-URL з ПОПЕРЕДНЬОГО документа
+  // лишалися в chunkLoaders — і новий текст озвучувався шматками старого
+  // (саме так і виходило «читає не той текст»)
+  ttsStop();
   chunksReady=false;
+  // покоління рендеру: при швидкому повторному відкритті застосовується
+  // лише останній виклик, старі setTimeout не встигають «перемішати» чанки
+  const rgen=++renderGen;
+  const render=()=>{
   // спершу мова/голос/інтерфейс — щоб навіть при повільному чи вдалому рендерингу великого тексту все працювало
   const l=detectLang(t.slice(0,200000));
   document.getElementById('det-lang').textContent=l.f+' '+l.n;
@@ -643,7 +651,8 @@ function openReader(){
   }catch(e){}
   applyReadSettings();
   // важкий рендер окремо: не блокує показ екрана і має запасний варіант
-  setTimeout(()=>{
+    // текст уже змінили — цей виклик нічого не рендерить
+    if(rgen!==renderGen)return;
     try{
       artEl.innerHTML=DOMPurify.sanitize(marked.parse(t),{ADD_TAGS:['code','pre'],ADD_ATTR:['class']});
       // підсвітка коду тільки для невеликих текстів — на великих книгах вона зависає
@@ -664,9 +673,11 @@ function openReader(){
       }catch(e2){console.error('render fallback failed:',e2)}
     }
     // чанки готові (або відпрацьовано з фолбеком): старт читання з цього моменту
-    // дозволений, а очікування у startFrom завершується
-    chunksReady=true;
-  },0);
+    // дозволений, а очікування у startFrom завершується.
+    // Гард покоління: якщо текст уже змінили — цей рендер не чіпає готовність
+    if(rgen===renderGen)chunksReady=true;
+  }
+  setTimeout(render,0);
 }
 
 function closeReader(){
@@ -805,6 +816,8 @@ let chunkLoaders={},edgeFailStreak=0,healEdge=false,healAttempts=0;
 // чанки відповідають саме показаному тексту: інакше під час повільного рендеру
 // великого тексту можна стартувати й озвучувати ПОПЕРЕДНІЙ документ («читає не те»)
 let chunksReady=true;
+// покоління рендеру: застосовується лише останнє відкриття тексту
+let renderGen=0;
 // покоління браузерного читання: прибирає накладені репліки (два голоси) і «завислі» onend
 let brGen=0,brWatch=0;
 let downloadingBook=false;
@@ -879,9 +892,16 @@ function getTTSCache(){
   return ttsCachePromise;
 }
 function ttsCacheKey(text,voice,rate){
-  let h=0;
-  for(let i=0;i<text.length;i++){h=(h*31+text.charCodeAt(i))>>>0}
-  return voice+'|'+rate+'|'+h.toString(36);
+  // два різні 32-біт хеші + довжина тексту: однобітного 32-біт хешу мало для
+  // великих книг (десятки тисяч сегментів у кеші) — колізія віддавала б сегменту
+  // ЧУЖЕ аудіо («читає не той текст»). Двох хешів досить: ймовірність збігу ~2^-64
+  let h1=0x811c9dc5,h2=0x1b873593;
+  for(let i=0;i<text.length;i++){
+    const c=text.charCodeAt(i);
+    h1=Math.imul(h1^c,16777619);
+    h2=(Math.imul(h2,31)+c)>>>0;
+  }
+  return voice+'|'+rate+'|'+text.length.toString(36)+'|'+((h1>>>0).toString(36))+(h2.toString(36));
 }
 
 function isPiperVoice(v){return v&&v.startsWith('piper:')}
@@ -893,13 +913,14 @@ function updateEngineBadge(){
   if(isPiperVoice(ttsVoice.value)){clear();el.textContent='Piper (local)';el.style.background='rgba(59,130,246,.15)';el.style.color='#3b82f6';}
   else{clear();el.textContent='edge-tts';}
 }
-ttsVoice.addEventListener('change',updateEngineBadge);
+// (оновлення бейджа вже відбувається у спільному обробнику change вище)
 
 async function startFrom(i,fromChar){
   // чанки ще не відповідають показаному тексту (триває повільний рендер великої
-  // книги) — не читаємо сторонній/старий текст: чекаємо на завершення рендеру
+  // книги) — не читаємо сторонній/старий текст: чекаємо на завершення рендеру.
+  // Якщо рендер завершено, а чанків немає (порожній текст) — не чекаємо безкінечно
   if(!chunksReady){setTimeout(()=>{if(chunksReady&&!playing)startFrom(i,fromChar)},250);return}
-  if(!ttsChunks.length){setTimeout(()=>{if(chunksReady&&!playing&&ttsChunks.length)startFrom(i,fromChar)},250);return}
+  if(!ttsChunks.length)return;
   // спершу повна зупинка (вона валідує покоління), і тільки потім — нове покоління
   ttsStop();
   const gen=++ttsGeneration;
@@ -1322,7 +1343,7 @@ function snapWordStart(text,pos){
   return p;
 }
 
-function readBr(startChar,endChar){
+function readBr(startChar){
   const ss=getSS();
   if(!ss){alert('На цьому браузері немає голосових функцій');ttsStop();return}
   ssCancel();
@@ -1338,8 +1359,7 @@ function readBr(startChar,endChar){
   // тому в мікрі/середніх текстах браузерний голос «читав не те» й одразу ж
   // стрибав далі, а абзац нібито повторювався
   const start=snapWordStart(full,Math.max(0,Math.min(typeof startChar==='number'?startChar:(curChunkChars||0),full.length)));
-  const end=Math.max(start,Math.min(typeof endChar==='number'?endChar:full.length,full.length));
-  const text=full.slice(start,end);
+  const text=full.slice(start);
   if(!/[\p{L}\p{N}]/u.test(text)){
     idx++;updateP();curChunkChars=0;
     if(idx<ttsChunks.length)readBr();
