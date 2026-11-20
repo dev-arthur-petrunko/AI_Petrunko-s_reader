@@ -91,6 +91,18 @@ body.reader-on::before{display:none}
 .smp-b:hover{background:rgba(124,92,252,.1);border-color:var(--ed-bh);color:var(--ed-tx)}
 
 #reading-screen{display:none;position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:40px 24px 160px}
+/* індикатор підготовки тексту: велика книга рендериться секунди — без нього
+   екран виглядав «порожнім», а старт читання чекав у тиші */
+.render-ind{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;background:rgba(10,10,14,.55);backdrop-filter:blur(3px)}
+.render-ind[hidden]{display:none}
+.ri-card{width:min(420px,86vw);padding:26px 28px;background:var(--a-card,#17151f);border:1px solid var(--a-bd,#2a2735);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.45);text-align:center;color:var(--a-tx,#ece8ff)}
+.ri-text{font-size:15px;font-weight:600;margin-bottom:14px}
+.ri-bar{position:relative;height:8px;border-radius:100px;background:rgba(124,92,252,.16);overflow:hidden}
+.ri-bar i{display:block;position:relative;height:100%;width:100%;border-radius:100px}
+.ri-bar i::after{content:'';position:absolute;top:0;left:0;height:100%;width:45%;border-radius:100px;background:linear-gradient(90deg,#7c5cfc,#60a5fa);transform:translateX(-120%);animation:riSweep 1.2s ease-in-out infinite}
+.render-ind.ri-done .ri-bar i::after{animation:none;transform:none;width:100%;background:#7c5cfc}
+@keyframes riSweep{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+.ri-pct{margin-top:10px;font-size:13px;color:var(--a-sec,#9b93b5)}
 body.reader-on{background:var(--a-bg);color:var(--a-tx);transition:background .3s,color .3s}
 body.reader-on .theme-toggle{border-color:var(--a-bd);background:var(--a-card);color:var(--a-tx)}
 body.reader-on .theme-toggle:hover{background:var(--a-bl)}
@@ -335,6 +347,14 @@ body.reader-on .lang-toggle{border-color:var(--a-bd);background:var(--a-card);co
 </div>
 
 <audio id="tts-audio" preload="auto" playsinline webkit-playsinline></audio>
+
+<div class="render-ind" id="render-ind" hidden>
+  <div class="ri-card">
+    <div class="ri-text" id="ri-text">Готую текст до читання…</div>
+    <div class="ri-bar"><i id="ri-fill"></i></div>
+    <div class="ri-pct" id="ri-pct">0%</div>
+  </div>
+</div>
 
 <script>
 const LANGS=[
@@ -621,6 +641,12 @@ function openReader(){
   // покоління рендеру: при швидкому повторному відкритті застосовується
   // лише останній виклик, старі setTimeout не встигають «перемішати» чанки
   const rgen=++renderGen;
+  // Індикатор показуємо СИНХРОННО для великих текстів: подальший рендер
+  // блокує потік JS на секунди — відкладений показ не встиг би намалюватись.
+  // Для малих текстів (рендер <100мс) індикатор не показується взагалі
+  hideRenderInd();
+  const showInd=t.length>120000;
+  if(showInd)showRenderInd(rgen);
   const render=()=>{
   // спершу мова/голос/інтерфейс — щоб навіть при повільному чи вдалому рендерингу великого тексту все працювало
   const l=detectLang(t.slice(0,200000));
@@ -673,15 +699,16 @@ function openReader(){
       }catch(e2){console.error('render fallback failed:',e2)}
     }
     // чанки готові (або відпрацьовано з фолбеком): старт читання з цього моменту
-    // дозволений, а очікування у startFrom завершується.
-    // Гард покоління: якщо текст уже змінили — цей рендер не чіпає готовність
-    if(rgen===renderGen)chunksReady=true;
+    // дозволений, а очікування у startFrom завершується
+    finishRender(rgen);
   }
-  setTimeout(render,0);
+  // при індикаторі — один кадр на малювання оверлею перед блокуючим рендером
+  setTimeout(render,showInd?80:0);
 }
 
 function closeReader(){
   ttsStop();
+  hideRenderInd();
   document.getElementById('reading-screen').style.display='none';
   document.getElementById('input-screen').style.display='block';
   document.getElementById('tts-bar').classList.remove('on');
@@ -818,6 +845,35 @@ let chunkLoaders={},edgeFailStreak=0,healEdge=false,healAttempts=0;
 let chunksReady=true;
 // покоління рендеру: застосовується лише останнє відкриття тексту
 let renderGen=0;
+// Індикатор підготовки великого тексту. Важливо: рендер СИНХРОННИЙ і блокує
+// потік JS на секунди — тому індикатор показуємо ДО старту рендеру, а «рух»
+// бару зроблено на transform (композитор): CSS-анімація продовжує рухатись,
+// навіть коли головний потік зайнятий (JS-тик під час блоку не оновився б)
+function showRenderInd(rgen){
+  const el=document.getElementById('render-ind');
+  el.dataset.rgen=String(rgen);
+  el.hidden=false;
+  el.classList.remove('ri-done');
+  document.getElementById('ri-text').textContent='Готую текст до читання…';
+  document.getElementById('ri-pct').textContent='';
+}
+function hideRenderInd(){
+  const el=document.getElementById('render-ind');
+  el.hidden=true;
+  el.classList.remove('ri-done');
+}
+function finishRender(rgen){
+  // оновлюємо стан саме цього виклику рендеру
+  if(rgen!==renderGen)return;
+  chunksReady=true;
+  const el=document.getElementById('render-ind');
+  if(!el.hidden){
+    el.classList.add('ri-done');
+    document.getElementById('ri-fill').style.width='100%';
+    document.getElementById('ri-pct').textContent='100%';
+    setTimeout(hideRenderInd,220);
+  }
+}
 // покоління браузерного читання: прибирає накладені репліки (два голоси) і «завислі» onend
 let brGen=0,brWatch=0;
 let downloadingBook=false;
@@ -1175,7 +1231,7 @@ function getLoader(chunkIdx){
   let L=chunkLoaders[chunkIdx];
   if(!L){
     const segs=languageSegments(ttsChunks[chunkIdx]||'');
-    L={segs,urls:new Array(segs.length),promises:new Array(segs.length)};
+    L={segs,urls:new Array(segs.length),promises:new Array(segs.length),errTries:new Array(segs.length).fill(0)};
     chunkLoaders[chunkIdx]=L;
   }
   return L;
@@ -1236,10 +1292,36 @@ function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
         ttsAudioEl.src=url;
         if(ttsAudioEl.load)ttsAudioEl.load();
         // захист від подвійного переходу: ended+error на одному сегменті не має пропускати сегмент
-        let consumed=false;
-        const advance=()=>{if(consumed)return;consumed=true;ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;if(!playing||mode==='browser'){done();return}wordBase+=segWordCount(seg.text);charDone+=(seg.text||'').length;curChunkChars=Math.min(charDone,fullLen);cancelAnimationFrame(wordHighlightRAF);next()};
+        let consumed=false,segWatch=null;
+        const advance=()=>{if(consumed)return;consumed=true;clearTimeout(segWatch);ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;if(!playing||mode==='browser'){done();return}wordBase+=segWordCount(seg.text);charDone+=(seg.text||'').length;curChunkChars=Math.min(charDone,fullLen);cancelAnimationFrame(wordHighlightRAF);next()};
+        // скидання сегмента при збої: ОДИН повторний запит, далі — фолбек назовні
+        // (без тихого пропуску тексту!)
+        const retryOrFail=()=>{
+          if(consumed)return;
+          const tries=(L.errTries[k]||0)+1;
+          L.errTries[k]=tries;
+          if(tries<2){
+            L.promises[k]=null;L.urls[k]=null;
+            i=k;next();return;
+          }
+          const e=new Error('TTS_FAILED');e.resumeFrom=k;reject(e);
+        };
         ttsAudioEl.onended=advance;
-        ttsAudioEl.onerror=advance;
+        // ПОМИЛКА ЗАВАНТАЖЕННЯ ≠ «програно». Раніше onerror=advance мовчки
+        // стрибав сегмент (code 1 ABORTED від власного load(), code 4 після
+        // відкликання blob-url) — саме так губилися великі шматки тексту.
+        // Тепер: спочатку ОДИН повтор, потім помилка назовні (браузер дочитає)
+        ttsAudioEl.onerror=()=>{
+          if(consumed||gen!==ttsGeneration)return;
+          const err=ttsAudioEl.error;
+          // 1 = ABORTED: наш власний load() перервав попереднє завантаження,
+          // ресурс іде далі — це не збій, чекаємо ended/реальної помилки
+          if(!err||err.code===1)return;
+          clearTimeout(segWatch);
+          retryOrFail();
+        };
+        // власний play() + чистий старт — знімаємо сторож завантаження
+        ttsAudioEl.onplaying=()=>clearTimeout(segWatch);
         // позиція в символах у межах ПОТОЧНОГО сегмента (для відновлення посеред
         // сегмента — у дрібних абзаців один сегмент на весь абзац)
         const segChars=(seg.text||'').length;
@@ -1257,12 +1339,24 @@ function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
         // властивості перезаписуються при кожному новому src — старі не «залипають»
         ttsAudioEl.onloadedmetadata=doSeek;ttsAudioEl.ondurationchange=doSeek;
         if(!seeked)setTimeout(doSeek,0);
+        // сторож зависання: ні ended, ні помилки, ні власного play() протягом
+        // 35с → перезапитуємо сегмент один раз, далі фолбек. Пауза — не збій.
+        segWatch=setTimeout(function check(){
+          if(consumed||gen!==ttsGeneration)return;
+          if(ttsPaused){segWatch=setTimeout(check,4000);return}
+          if(ttsAudioEl.error&&ttsAudioEl.error.code!==1)return; // обробить onerror
+          console.warn('segment stall: сегмент не стартував 35с — повтор');
+          retryOrFail();
+        },35000);
         const se=wordEndTimes(seg.text||'',rateMultiplier(curRate));
         const stotal=se.length?se[se.length-1]:1;
         let wi=0;
         cancelAnimationFrame(wordHighlightRAF);
         const tick=()=>{
           if(!playing){wordHighlightRAF=requestAnimationFrame(tick);return}
+          // onend міг «проковтнутись» (headless/деякі браузери) — самі бачимо
+          // кінець відтворення, інакше читання зависало на сегменті
+          if(ttsAudioEl.ended){advance();return}
           const dur=ttsAudioEl.duration||1;
           const cur=ttsAudioEl.currentTime||0;
           const ct=Math.min(cur/(dur/stotal),stotal);

@@ -102,6 +102,18 @@ as a first-class state, so the engine handoff never leaves two things talking at
 - **Resume continues mid-paragraph.** Voice/speed/EN-toggle changes restart from the saved
   character offset (`curChunkChars`), snapped to a word boundary with an in-segment seek —
   the paragraph is not re-read from the start and no word starts half-cut.
+- **A segment failure is never a silent skip.** `onerror` on `<audio>` used to count as
+  "played" and jump to the next segment — an aborted load or a revoked blob URL made whole
+  paragraphs disappear. Now a real media error retries that exact segment once, then hands
+  the paragraph to the browser voice at the failure offset; `code 1 (ABORTED)` is ignored
+  because it comes from our own `load()`, and a stall watchdog (35 s without
+  start/`ended`) retries instead of freezing. `ended` is also detected in the highlight
+  tick, so a swallowed event can't hang the reading.
+- **Render indicator.** Opening a text over 120k chars shows a sweep progress overlay
+  synchronously before the render (the render blocks the JS thread for seconds, so a
+  deferred indicator would never paint — the sweep runs on the compositor via CSS
+  animation) and completes with 100% + fade-out when chunks are ready. Small texts don't
+  flash it.
 - **Collision-resistant browser cache key.** The Cache Storage key mixes text length with
   two 32-bit hashes (FNV-1a + multiply-31); a single 32-bit hash could collide on large
   books and serve one segment's audio for another.
