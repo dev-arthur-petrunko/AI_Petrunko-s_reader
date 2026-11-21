@@ -114,6 +114,24 @@ as a first-class state, so the engine handoff never leaves two things talking at
   deferred indicator would never paint — the sweep runs on the compositor via CSS
   animation) and completes with 100% + fade-out when chunks are ready. Small texts don't
   flash it.
+- **No silent skips — ever.** A failing segment is retried once at the same spot, then the
+  paragraph is handed to the browser voice at the failure offset; media errors from our own
+  `load()` (code 1 ABORTED) are ignored, a 35 s stall watchdog retries instead of freezing,
+  and a swallowed `ended` is detected in the highlight tick. Chunks are filtered with a
+  Unicode-aware script test (Cyrillic of *any* language counts, Latin-with-accents too) —
+  previously a Russian-only paragraph failed the filter and was never read at all.
+- **Highlight tracks real positions.** Segment offsets in a paragraph are located with
+  `indexOf` (the naive sum of lengths dropped inter-segment spaces and drifted the highlight
+  by words); the word index is `chunk offset + words before segment + word in segment`,
+  and resume positions snap to word starts.
+- **Language switches are seamless.** The next two segments are prefetched while the
+  current one plays, so a ru→en/uk→en boundary synthesises ahead of playback (measured
+  gap: single-digit milliseconds). The browser fallback picks the utterance language from
+  the actual segment text (not only the saved locale) and falls back through sibling
+  languages (uk↔ru) before giving up, so a mixed text never reads in a wrong/broken voice.
+- **Heal waits for a healthy stretch.** After an edge failure the player stays on the
+  browser voice until 3 consecutive paragraphs succeed, then retries edge — no bouncing
+  onto a still-broken voice every paragraph.
 - **Collision-resistant browser cache key.** The Cache Storage key mixes text length with
   two 32-bit hashes (FNV-1a + multiply-31); a single 32-bit hash could collide on large
   books and serve one segment's audio for another.

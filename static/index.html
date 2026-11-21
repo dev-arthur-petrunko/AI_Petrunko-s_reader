@@ -507,7 +507,12 @@ function buildChunks(){
     if(!raw)return;
     const cleaned=cleanTTS(raw);
     if(!cleaned.trim())return;
-    if(!/[A-Za-z0-9\u00C0-\u024F\u0400-\u04FF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0620-\u064A]/.test(cleaned))return;
+    // латиниця будь-якої розкладки (включно з французькою è/ç), КИРИЛИЦЯ ВСІХ
+    // мов (рос. без і/ї теж!), японська, китайська, корейська, арабська, єврейська,
+    // деванагарі. Раніше тут не було \u0400-\u04FF наявності-\u024F:4D60-\u064A→
+    // російський абзац без жодної української літери не проходив фільтр —
+    // і НЕ ЧИТАВСЯ ВООБЩЕ (великі шматки тексту «пропускались»)
+    if(!/[A-Za-z0-9\u00C0-\u024F\u0400-\u052F\u0370-\u03FF\u0400-\u04FF\u0500-\u052F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0620-\u064A\u0590-\u05FF\u0900-\u097F]/.test(cleaned))return;
     const start=wordOffset;
     wordOffset=splitChunkIntoWords(el,wordOffset);
     items.push({el,start});
@@ -840,6 +845,10 @@ let ttsPaused=false;
 // запускаємо його рівно після «Далі» (інакше сегмент губився або повторювався)
 let pendingPlay=null;
 let chunkLoaders={},edgeFailStreak=0,healEdge=false,healAttempts=0;
+// скільки абзаців поспіль browser-голос відпрацював БЕЗ збоїв: потрібно,
+// щоб повертатись на edge лише після кількох «здорових» абзаців
+// (інакше одразу стрибав на «зламаний» голос і падав знову)
+let brOkStreak=0;
 // чанки відповідають саме показаному тексту: інакше під час повільного рендеру
 // великого тексту можна стартувати й озвучувати ПОПЕРЕДНІЙ документ («читає не те»)
 let chunksReady=true;
@@ -909,16 +918,24 @@ function initBrowserVoices(){
   if(ss&&ss.addEventListener){try{ss.addEventListener('voiceschanged',refreshBrowserVoices)}catch(e){}}
   let n=0;const iv=setInterval(()=>{refreshBrowserVoices();if(browserVoices.length||++n>20)clearInterval(iv);},300);
 }
-// підбираємо голос саме під мову: точний збіг (uk-UA) → базова мова (uk)
-// без цього читання брало голос за замовчуванням → незрозумілий/зіпсований голос
+// підбираємо голос саме під мову: точний збіг (uk-UA) → базова мова (uk) →
+// «рідні» мови (російська для української і навпіл — взаємно зрозумілі) →
+// English-variants → будь-який із цієї мовної групи.
+// Без цього читання брало голос за замовчуванням (en-US) для uk/ru тексту —
+// саме так і звучав «зламаний» голос
 function pickBrowserVoice(lang){
   if(!browserVoices.length)refreshBrowserVoices();
   if(!browserVoices.length||!lang)return null;
   const norm=v=>String(v.lang||'').replace('_','-');
   const exact=String(lang).replace('_','-');
   const base=exact.split('-')[0];
+  const SIB={'uk':['ru','be'],'ru':['uk','be','bg'],'be':['ru','uk'],
+             'en':['en'],'de':['de','nl'],'es':['es','pt'],'pt':['pt','es']};
+  const near=SIB[base]||[base];
   return browserVoices.find(v=>norm(v)===exact)
     || browserVoices.find(v=>norm(v).split('-')[0]===base)
+    || browserVoices.find(v=>near.includes(norm(v).split('-')[0]))   // uk→ru тощо
+    || browserVoices.find(v=>norm(v).split('-')[0]===base.split('-')[0])
     || null;
 }
 let audioUnlocked=false;
@@ -985,7 +1002,7 @@ async function startFrom(i,fromChar){
   curVoice=ttsVoice.value||'uk-UA-PolinaNeural';
   curRate=ttsSpeed.value;
   if(gen!==ttsGeneration)return;
-  edgeFailStreak=0;healAttempts=0;mode='edge';ttsPaused=false;
+  edgeFailStreak=0;healAttempts=0;mode='edge';ttsPaused=false;brOkStreak=0;
   curChunkChars=Math.max(0,Math.min(fromChar||0,(ttsChunks[idx]||'').length));
   playEdge();
 }
@@ -1066,16 +1083,20 @@ async function playEdge(startAt){
       startAt=0;
       if(curChunkChars>0){
         const segs=L.segs;
+        // позиція шукається за РЕАЛЬНИМИ зсувами сегментів (L.starts),
+        // а не за сумою довжин (вона «з'їжджалась» на пробілах між сегментами)
+        const st=(L.starts&&L.starts.length===segs.length)?L.starts:null;
         let n=0;
         for(let j=0;j<segs.length;j++){
-          const len=(segs[j].text||'').length;
-          if(curChunkChars<n+len){
-            // позиція всередині сегмента — частка для seek (єдиний спосіб
-            // продовжити посеред абзацу, якщо абзац = один сегмент)
-            resumeFrac=len?Math.min(1,(curChunkChars-n)/len):0;
+          const segStart=st?st[j]:n;
+          const segEnd=segStart+(segs[j].text||'').length;
+          if(curChunkChars<segEnd||j===segs.length-1){
+            const len=segEnd-segStart;
+            resumeFrac=len?Math.max(0,Math.min(1,(curChunkChars-segStart)/len)):0;
             startAt=j;break;
           }
-          n+=len;startAt=j+1;
+          n=segEnd;
+          startAt=j+1;
         }
         if(startAt>=segs.length){startAt=segs.length-1;resumeFrac=0}
       }
@@ -1100,7 +1121,12 @@ async function playEdge(startAt){
     // звідси продовжить голос браузера (без повтору прочитаного)
     const charsBefore=k=>{
       try{
-        const segs=(chunkLoaders[idx]&&chunkLoaders[idx].segs)||[];
+        const L=chunkLoaders[idx];
+        if(L&&L.starts&&L.starts.length){
+          // РЕАЛЬНА позиція початку сегмента k у тексті чанка
+          return Math.min((L.starts[k]||0),(L.full||'').length);
+        }
+        const segs=(L&&L.segs)||[];
         let n=0;
         for(let j=0;j<k&&j<segs.length;j++)n+=(segs[j].text||'').length;
         return n;
@@ -1231,7 +1257,20 @@ function getLoader(chunkIdx){
   let L=chunkLoaders[chunkIdx];
   if(!L){
     const segs=languageSegments(ttsChunks[chunkIdx]||'');
-    L={segs,urls:new Array(segs.length),promises:new Array(segs.length),errTries:new Array(segs.length).fill(0)};
+    // РЕАЛЬНІ позиції сегментів у тексті чанка: languageSegments прибирає
+    // ділянки лише з пунктуацією, тому проста сума довжин «з'їдає» пробіли —
+    // підсвітка і відновлення «з'їжджались» на кілька слів. Шукаємо кожен
+    // сегмент у тексті послідовно (indexOf з маркера) — якщо не знайшли,
+    // відкотимось до накопиченої суми
+    const full=ttsChunks[chunkIdx]||'';
+    const starts=[];let sp=0;
+    for(const s of segs){
+      const from=full.indexOf(s.text,sp);
+      starts.push(from>=0?from:sp);
+      sp=from>=0?from+s.text.length:sp+s.text.length;
+    }
+    L={segs,urls:new Array(segs.length),promises:new Array(segs.length),
+       errTries:new Array(segs.length).fill(0),starts,full};
     chunkLoaders[chunkIdx]=L;
   }
   return L;
@@ -1266,17 +1305,23 @@ function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
   return new Promise((resolve,reject)=>{
     const info=chunkWordCounts[chunkIdx];
     const segs=L.segs||[];
-    // повна довжина абзацу (межа для позиції відновлення)
-    const fullLen=(ttsChunks[chunkIdx]||'').length;
+    // повна довжина абзацу (межа для позиції відновлення) та сам текст
+    const full=ttsChunks[chunkIdx]||'';
+    const fullLen=full.length;
     // сегменти беруться зі спільного завантажувача — без дубльованих запитів.
     // edgeSpeak уже робить власні повторні спроби, тому тут зайвий ретрай не потрібен:
     // він лише подвоював час очікування на завислому сервері
     const load=i=>segUrl(L,i);
-    let i=startAt,wordBase=0,stopped=false,failed=0;
-    // позиція в символах у межах абзацу: оновлюється після кожного програного
-    // сегмента — це точка відновлення після зміни голосу/швидкості чи фолбеку
-    let charDone=0;
-    for(let j=0;j<startAt;j++){wordBase+=segWordCount((segs[j]||{}).text);charDone+=(segs[j]||{text:''}).text.length;}
+    let i=startAt,stopped=false,failed=0;
+    // ТОЧНІ позиції сегментів у тексті чанка (L.starts обчислено в getLoader
+    // через indexOf). Раніше тут була сума довжин сегментів — вона «з'їдала»
+    // пробіли/пунктуацію між сегментами, підсвітка з'їжджалась на кілька слів
+    const starts=(L.starts&&L.starts.length===segs.length)?L.starts:segs.map((_s,j)=>{let n=0;for(let q=0;q<j;q++)n+=(segs[q]||{text:''}).text.length;return n});
+    // глобальне слово = offset чанка + слова ДО початку сегмента + слово в сегменті
+    const segPrefix=k=>segWordCount(full.slice(0,starts[k]||0));
+    // позиція в символах: де закінчується поточний сегмент
+    const segEndOf=k=>(starts[k]||0)+((segs[k]||{text:''}).text||'').length;
+    let charDone=starts[startAt]||0;
     const done=()=>{if(!stopped){stopped=true;resolve()}};
     const next=()=>{
       // при фолбеку на browser доріжка edge не має продовжуватись (інакше два голоси)
@@ -1285,15 +1330,22 @@ function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
       const seg=segs[k];
       // сегмент без літер/цифр читати нема сенсу — просто пропускаємо
       if(!/[\p{L}\p{N}]/u.test(seg.text)){if(i<segs.length)next();else done();return}
+      // ПОПЕРЕДНЯЄ ЗАВАНТАЖЕННЯ (lookahead 2): наступні ДВА сегменти готуються
+      // вже зараз, поки грає поточний — на стику мов (ru→en, uk→en) синтез
+      // встигає завершитись, і перемикання голосу відбувається без паузи
+      for(let j=i;j<Math.min(segs.length,i+2);j++){
+        if(!L.promises[j]&&!L.urls[j])load(j).catch(()=>{});
+      }
       load(k).then(url=>{
         if(gen!==ttsGeneration){done();return}
-        if(i<segs.length)load(i).catch(()=>{});
         if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl=url;
         ttsAudioEl.src=url;
         if(ttsAudioEl.load)ttsAudioEl.load();
         // захист від подвійного переходу: ended+error на одному сегменті не має пропускати сегмент
         let consumed=false,segWatch=null;
-        const advance=()=>{if(consumed)return;consumed=true;clearTimeout(segWatch);ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;if(!playing||mode==='browser'){done();return}wordBase+=segWordCount(seg.text);charDone+=(seg.text||'').length;curChunkChars=Math.min(charDone,fullLen);cancelAnimationFrame(wordHighlightRAF);next()};
+        // глобальне слово першого слова сегмента: offset чанка + слова до нього
+        const segBase=(info?info.offset:0)+segPrefix(k);
+        const advance=()=>{if(consumed)return;consumed=true;clearTimeout(segWatch);ttsAudioEl.onloadedmetadata=null;ttsAudioEl.ondurationchange=null;if(!playing||mode==='browser'){done();return}charDone=segEndOf(k);curChunkChars=Math.min(charDone,fullLen);cancelAnimationFrame(wordHighlightRAF);next()};
         // скидання сегмента при збої: ОДИН повторний запит, далі — фолбек назовні
         // (без тихого пропуску тексту!)
         const retryOrFail=()=>{
@@ -1361,12 +1413,15 @@ function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
           const cur=ttsAudioEl.currentTime||0;
           const ct=Math.min(cur/(dur/stotal),stotal);
           while(wi<se.length&&se[wi]<ct)wi++;
-          if(se.length)highlightWord((info?info.offset:0)+wordBase+Math.min(wi,se.length-1));
+          // слово в глобальних індексах: РЕАЛЬНА позиція початку сегмента
+          // (а не сума довжин, що «з'їжджалась» на пробілах)
+          if(se.length)highlightWord(segBase+Math.min(wi,se.length-1));
           // позиція оновлюється БЕЗперервно (не лише в кінці сегмента): зміна
           // голосу/швидкості посеред абзацу продовжує з того ж слова
           if(segChars&&isFinite(cur)){
             const inSeg=Math.min(segChars,Math.round(cur/(dur||1)*segChars));
-            curChunkChars=Math.min(charDone+inSeg,fullLen);
+            // позиція = ПОЧАТОК сегмента + прочитане в ньому
+            curChunkChars=Math.min((starts[k]||0)+inSeg,fullLen);
           }
           wordHighlightRAF=requestAnimationFrame(tick);
         };
@@ -1414,8 +1469,19 @@ function playSegments(L,chunkIdx,gen,startAt,resumeFrac){
         failed++;
         // якщо не вдалося жодного сегмента — віддаємо помилку назовні (фолбек на голос браузера)
         if(failed>=segs.length){e.allFailed=true;reject(e);return}
-        // інакше пропускаємо проблемний сегмент і читаємо далі, щоб не зациклитись
-        if(i<segs.length)next();else done();
+        // НЕ пропускаємо текст! Один сегмент збояв — один раз перезапитуємо
+        // його (сервер міг відповісти 500/таймаутом); тільки після повторного
+        // збою вважаємо, що «нічого не вдалося», і віддаємо фолбек назовні
+        // (браузер дочитає абзац з цього місця). Мовчки стрибати далі — заборонено
+        const tries=(L.errTries[k]||0)+1;
+        L.errTries[k]=tries;
+        if(tries<2){
+          L.promises[k]=null;L.urls[k]=null;
+          i=k;
+          next();
+          return;
+        }
+        e.allFailed=true;reject(e);
       });
     };
     next();
@@ -1435,6 +1501,20 @@ function snapWordStart(text,pos){
   // на пробілі/пунктуації — до наступного слова
   while(p<text.length&&!isWord(text[p]))p++;
   return p;
+}
+
+// мова для репліки браузера: ЗБЕРЕЖЕНА мова (ttsLang) може не збігатись з
+// фактичною мовою сегмента (збережений uk-голос на руському тексті тощо) —
+// у такому разі голос читав не свою мову → «зламаний» голос. Якщо сегмент
+// явно на іншій мові (є її характерні літери) — беремо мову фактичну.
+function utterLang(text){
+  const saved=ttsLang.value;
+  if(!text)return saved;
+  const l=detectLang(text);
+  if(!l||l.c===saved)return saved;
+  // характерні літери іншої мови у сегменті
+  if(l.d&&l.d.test(text))return l.c;
+  return saved;
 }
 
 function readBr(startChar){
@@ -1461,12 +1541,15 @@ function readBr(startChar){
   }
   highlightChunk(idx);
   document.getElementById('tts-btn').textContent='⏸ Пауза';
+  // фактична мова сегмента (а не лише збережена) — голос мусить відповідати
+  // тексту, інакше звучить «зламано»
+  const segLang=utterLang(text);
   const u=new SpeechSynthesisUtterance(text);
-  u.lang=ttsLang.value;
+  u.lang=segLang;
   const rateMatch=curRate.match(/([+-]?\d+)/);
   u.rate=rateMatch?1+parseInt(rateMatch[1])/100:1;
   u.pitch=1;
-  const brVoice=pickBrowserVoice(ttsLang.value);
+  const brVoice=pickBrowserVoice(segLang);
   if(brVoice)u.voice=brVoice;
   const gen=++brGen; // якщо покоління змінилось — ця репліка вже неактуальна (накладення/стоп)
   const info=chunkWordCounts[idx];
@@ -1518,7 +1601,15 @@ function readBr(startChar){
 
 // наступний крок читання: якщо був фолбек на browser, пробуємо повернутись на edge
 function nextReadStep(){
-  if(healEdge){healEdge=false;mode='edge';curChunkChars=0;playEdge();return}
+  // пробуємо edge ТІЛЬКИ між абзацами: healEdge боїться «зламаного» голоса,
+  // якщо він щойно впав на поточному. Після 3 послідовних вдалих абзаців у
+  // браузері пробуємо ще раз (відновлення хмарного голоса без зациклення)
+  if(healEdge){
+    if(brOkStreak>=3){healEdge=false;brOkStreak=0;mode='edge';updateEngineBadge();playEdge();return}
+    brOkStreak++;
+  }else{
+    brOkStreak++;
+  }
   readBr();
 }
 
